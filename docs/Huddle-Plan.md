@@ -1,7 +1,7 @@
 # Huddle — Plan v1
 
 _Personal voice + text app for gaming with friends. Replaces Discord for one friend group._
-_Written 2026-10-20. Owner: Danny. Status: awaiting Danny's review of §6 decisions._
+_Written 2026-10-20. Owner: Danny. Status: §6 decided 2026-10-20; batch 0 built._
 
 ---
 
@@ -154,13 +154,14 @@ Already decided (2026-10-20):
 - Voice + screen share, **no video**.
 - Max **10** per voice channel. Joining, not ringing. Activity status is in.
 
-Open — pick one each (recommendation first):
-1. **Repo visibility:** public (simplest auto-update + free Railway builds) / private (safer; needs the `/download` route trick from Voice). → Recommend **private**, with `/download` on the server.
-2. **Where friends' files live:** Railway volume (simple, tied to the service) / Cloudflare R2 (free tier, survives redeploys cleanly). → Recommend **Railway volume for v1**.
-3. **Push-to-talk default:** PTT on by default / voice activity on by default. → Recommend **voice activity** with a noise gate; PTT one click away.
-4. **Mac desktop app:** v1 / later. → Recommend **later** (you game on Windows; Mac can use Chrome).
-5. **Custom emoji:** v1 / v2. → Recommend **v2**.
-6. **Screen share max:** 1080p60 default / 1080p30 default with 60 toggle. → Recommend **30 default, 60 toggle** (half the bandwidth for the viewers).
+Decided 2026-10-20 (all recommendations taken):
+1. **Repo visibility:** private, with a `/download` route on the server for installers.
+2. **Where friends' files live:** Railway volume for v1 (R2 if it grows).
+3. **Push-to-talk default:** voice activity with a noise gate; PTT one click away.
+4. **Mac desktop app:** later (Mac uses Chrome).
+5. **Custom emoji:** v2.
+6. **Screen share:** 1080p30 default, 60 fps toggle for the sharer.
+7. **Starting point:** fresh code, nothing copied from the earlier BTI Huddle prototype.
 
 ## 7. Cost estimate (monthly)
 - Railway: `huddle` + Postgres ~$5–10; `huddle-livekit` ~$5–15 depending on usage. Or LiveKit on a $6 VPS.
