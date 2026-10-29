@@ -144,10 +144,24 @@ export default function Composer({ channel, me, members, replyTo, onCancelReply,
     });
   }
 
-  function onPaste(e) {
-    const items = [...(e.clipboardData?.items || [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile());
-    if (items.length) { e.preventDefault(); addFiles(items.map((f) => new File([f], f.name || `pasted-${Date.now()}.png`, { type: f.type }))); }
-  }
+  // Paste anywhere in the window (not just with the box focused), like
+  // Discord. Handles a screenshot in the clipboard (items) and a file copied
+  // from Finder/Explorer (files).
+  useEffect(() => {
+    if (editing) return;
+    const onPaste = (e) => {
+      if (document.querySelector('.modal-backdrop')) return; // settings/profile open
+      const fromItems = [...(e.clipboardData?.items || [])].filter((i) => i.kind === 'file').map((i) => i.getAsFile()).filter(Boolean);
+      const fromFiles = [...(e.clipboardData?.files || [])];
+      const picked = fromItems.length ? fromItems : fromFiles;
+      if (!picked.length) return;
+      e.preventDefault();
+      addFiles(picked.map((f) => (f.name ? f : new File([f], `pasted-${Date.now()}.${(f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')}`, { type: f.type }))));
+      box.current?.focus();
+    };
+    document.addEventListener('paste', onPaste);
+    return () => document.removeEventListener('paste', onPaste);
+  }); // no deps on purpose: addFiles closes over the latest `files`
   function onDrop(e) {
     e.preventDefault();
     setDragging(false);
@@ -243,7 +257,6 @@ export default function Composer({ channel, me, members, replyTo, onCancelReply,
             maxLength={2000}
             onChange={onChange}
             onKeyDown={onKeyDown}
-            onPaste={onPaste}
             onClick={(e) => updateMention(text, e.target.selectionStart)}
             onBlur={() => setTimeout(() => setMention(null), 150)}
           />
