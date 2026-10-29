@@ -5,15 +5,17 @@ Plan and batch order: `Huddle-Plan.md` §5.
 
 ## ▶ NEXT UP (2026-10-29)
 
-**Batch 1 — LiveKit on Railway: code done, needs deploy + the 10-minute test.**
-1. Commit + push batch 1 (Mac: `~/Dev/huddle`).
-2. Railway: add the `huddle-livekit` service and wire it to `huddle` — click-by-click in `livekit/README.md` → "Railway setup".
-3. Make 2 more accounts (Paul + one friend) with an invite (curl below), then all 3 open `/voice-test`, join, talk 10 minutes, and each sends back **Copy diagnostics**.
+**Batch 1 — LiveKit on Railway: DEPLOYED 2026-10-29, solo join works (TCP). Needs the 10-minute test.**
+1. ~~Commit + push~~ done (`7a2f37e`). ~~Railway `huddle-livekit` service~~ done, wired to `huddle`.
+2. Invite link made (max 5 uses); 1 friend invited so far. Need 3 people total.
+3. All 3 open `/voice-test`, join, talk 10 minutes, each sends back **Copy diagnostics** → paste to Claude.
 4. Pass/fail rules are in `livekit/README.md` → "The test". Fail → "Fallback: LiveKit on a VPS" in the same file (compose file ready in `livekit/vps/`). Decide before batch 4.
 
 Still unconfirmed from batch 0: repo set to private; the 2-device presence check.
 
-## Batch 1 — LiveKit (built 2026-10-29, NOT yet deployed)
+Batch 2 (server & channels) can start next session — the Railway-vs-VPS call is only needed before batch 4.
+
+## Batch 1 — LiveKit (built + deployed 2026-10-29)
 - Railway has no inbound UDP → media runs over ICE/TCP through a Railway TCP proxy. `livekit/entrypoint.sh` advertises the proxy's IP + port and forwards 7881 to LiveKit (to the container IP — LiveKit drops ICE/TCP arriving on loopback; that bug was caught in the sandbox test).
 - `livekit/`: Dockerfile (`livekit/livekit-server:v1.13.9` + socat), entrypoint, `railway.json`, README (Railway steps, test pass/fail, troubleshooting, VPS fallback), `vps/` (docker compose + Caddy, untested).
 - Server: `POST /api/voice/test-token` (signed-in users, room `voice-test`, 2 h token). Needs `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`.
