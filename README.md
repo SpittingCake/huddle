@@ -2,7 +2,7 @@
 
 Voice + text for gaming with friends. One server, text channels, voice channels you click to join, screen share with game audio, and presence that shows what you're playing. Built to stay out of the way of the game.
 
-Plan and build order: [`docs/Huddle-Plan.md`](docs/Huddle-Plan.md). Current state: **batch 0** (skeleton — sign-in, sessions, server + channels tables, live presence).
+Plan and build order: [`docs/Huddle-Plan.md`](docs/Huddle-Plan.md). Current state: **batch 3** (sign-in + invites, server/channel settings, LiveKit test room, and live text channels — messages, replies, edits, reactions, pins, uploads, unread/mention badges, typing).
 
 ## Layout
 
@@ -46,7 +46,7 @@ One Railway project, three services:
 
 | Service | What | Notes |
 |---|---|---|
-| `huddle` | this repo, root directory `/` | Build: `npm run build`. Start: `npm start`. |
+| `huddle` | this repo, root directory `/` | Build: `npm run build`. Start: `npm start`. **Volume** mounted at `/data` + `UPLOAD_DIR=/data/uploads` for attachments. |
 | `huddle-postgres` | Railway Postgres | `DATABASE_URL` → `${{huddle-postgres.DATABASE_URL}}` |
 | `huddle-livekit` | `livekit/livekit-server` image | batch 1 |
 

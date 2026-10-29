@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Avatar from './Avatar.jsx';
 
 // Left rail: server name, channels grouped under collapsible categories,
 // and the signed-in user at the bottom. Owner sees a gear and "+" buttons
@@ -24,7 +25,7 @@ export function groupChannels(data) {
   return { loose, groups: categories.map((cat) => ({ category: cat, channels: byCat.get(cat.id) })) };
 }
 
-export default function Rail({ data, user, channelId, onSelect, onSignOut, onOpenSettings }) {
+export default function Rail({ data, user, unread, channelId, onSelect, onSignOut, onOpenProfile, onOpenSettings }) {
   const [collapsed, setCollapsed] = useState(loadCollapsed);
   const { loose, groups } = groupChannels(data);
 
@@ -37,21 +38,27 @@ export default function Rail({ data, user, channelId, onSelect, onSignOut, onOpe
     });
   }
 
-  const item = (c) => (
-    <li
-      key={c.id}
-      className={`channel ${c.type}${c.id === channelId ? ' selected' : ''}`}
-      onClick={() => onSelect(c.id)}
-      title={c.type === 'voice' ? 'Voice channel' : 'Text channel'}
-    >
-      <span className="glyph">{c.type === 'voice' ? '🔊' : '#'}</span>
-      <span className="channel-name">{c.name}</span>
-    </li>
-  );
+  const item = (c) => {
+    const u = (unread && unread[c.id]) || null;
+    const hasUnread = c.type === 'text' && c.id !== channelId && u?.unread > 0;
+    return (
+      <li
+        key={c.id}
+        className={`channel ${c.type}${c.id === channelId ? ' selected' : ''}${hasUnread ? ' unread' : ''}`}
+        onClick={() => onSelect(c.id)}
+        title={c.type === 'voice' ? 'Voice channel' : 'Text channel'}
+      >
+        <span className="glyph">{c.type === 'voice' ? '🔊' : '#'}</span>
+        <span className="channel-name">{c.name}</span>
+        {hasUnread && u.mentions > 0 && <span className="badge" title={`${u.mentions} mention${u.mentions > 1 ? 's' : ''}`}>{u.mentions > 99 ? '99+' : u.mentions}</span>}
+      </li>
+    );
+  };
 
   return (
     <aside className="rail">
       <div className="server-name">
+        {data?.server?.icon_url && <img className="server-icon" src={data.server.icon_url} alt="" />}
         <span className="server-name-text">{data?.server?.name ?? 'Huddle'}</span>
         {onOpenSettings && (
           <button className="icon" title="Server settings" onClick={() => onOpenSettings('overview')}>⚙</button>
@@ -89,10 +96,13 @@ export default function Rail({ data, user, channelId, onSelect, onSignOut, onOpe
       </div>
 
       <div className="me">
-        <div className="me-info">
-          <div className="name">{user.display_name}</div>
-          <div className="muted small">@{user.username}{user.role === 'owner' ? ' · owner' : ''}</div>
-        </div>
+        <button type="button" className="me-button" onClick={onOpenProfile} title="Edit your profile">
+          <Avatar user={user} size={32} />
+          <div className="me-info">
+            <div className="name">{user.display_name}</div>
+            <div className="muted small">@{user.username}{user.role === 'owner' ? ' · owner' : ''}</div>
+          </div>
+        </button>
         <button className="ghost" onClick={onSignOut} title="Sign out of this device">Sign out</button>
       </div>
     </aside>

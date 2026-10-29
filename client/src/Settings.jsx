@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { api } from './api.js';
+import { useEffect, useRef, useState } from 'react';
+import { api, getToken } from './api.js';
 import { groupChannels } from './Rail.jsx';
 
 // Owner-only settings modal: Overview (server name), Channels (CRUD +
@@ -13,6 +13,8 @@ const ERRORS = {
   bad_category: 'That category no longer exists.',
   last_text_channel: 'You need at least one text channel.',
   not_found: 'That no longer exists — it may have just been deleted.',
+  not_image: 'The icon must be a PNG, JPEG, GIF or WebP.',
+  file_too_large: 'That image is too big (8 MB max).',
 };
 const msg = (err) => ERRORS[err?.message] || 'Something went wrong. Try again.';
 
@@ -52,8 +54,27 @@ export default function Settings({ data, initial, onClose, reload }) {
 function Overview({ data, reload }) {
   const [name, setName] = useState(data.server?.name || '');
   const [state, setState] = useState(null); // null | 'saving' | 'saved' | error string
+  const [iconState, setIconState] = useState(null);
+  const fileInput = useRef(null);
 
   useEffect(() => setName(data.server?.name || ''), [data.server?.name]);
+
+  async function uploadIcon(file) {
+    if (!file) return;
+    setIconState('saving');
+    const form = new FormData();
+    form.append('file', file, file.name);
+    try {
+      const res = await fetch('/api/server/icon', { method: 'POST', headers: { Authorization: `Bearer ${getToken()}` }, body: form });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error || 'upload_failed');
+      setIconState(null);
+      reload();
+    } catch (err) { setIconState(msg(err)); }
+  }
+  async function removeIcon() {
+    try { await api('/api/server/icon', { method: 'DELETE' }); reload(); } catch (err) { setIconState(msg(err)); }
+  }
 
   async function save(e) {
     e.preventDefault();
@@ -80,7 +101,14 @@ function Overview({ data, reload }) {
         {state === 'saved' && <span className="ok small">Saved</span>}
         {state && state !== 'saving' && state !== 'saved' && <span className="error">{state}</span>}
       </div>
-      <p className="muted small">Server icon and avatars arrive with uploads in batch 3.</p>
+      <h4 className="settings-group">Server icon</h4>
+      <div className="row">
+        {data.server?.icon_url ? <img className="server-icon big" src={data.server.icon_url} alt="" /> : <span className="server-icon big placeholder">{(data.server?.name || 'H')[0]}</span>}
+        <button type="button" className="ghost" onClick={() => fileInput.current?.click()} disabled={iconState === 'saving'}>Change icon</button>
+        {data.server?.icon_url && <button type="button" className="ghost danger-text" onClick={removeIcon}>Remove</button>}
+        <input ref={fileInput} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => { uploadIcon(e.target.files?.[0]); e.target.value = ''; }} />
+        {iconState && iconState !== 'saving' && <span className="error">{iconState}</span>}
+      </div>
     </form>
   );
 }

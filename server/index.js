@@ -11,6 +11,7 @@ const cors = require('cors');
 const db = require('./db');
 const { bootstrap } = require('./bootstrap');
 const socket = require('./socket');
+const files = require('./helpers/files');
 
 const PORT = Number(process.env.PORT) || 3000;
 const SERVER_URL = (process.env.SERVER_URL || `http://localhost:${PORT}`).replace(/\/$/, '');
@@ -52,12 +53,16 @@ app.get('/api/health', (req, res) => res.json({ ok: true, version: require('./pa
 app.use('/auth', require('./routes/auth'));
 app.use('/api/server', require('./routes/server'));
 app.use('/api/voice', require('./routes/voice'));
+app.use('/api/channels', require('./routes/messages'));
+app.use('/api/uploads', require('./routes/uploads'));
+app.use('/api/me', require('./routes/me'));
+app.get('/files/:key', files.serve);
 
 // Built client (client/dist). In dev, run `npm run dev:client` instead.
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
 if (fs.existsSync(clientDist)) {
   app.use(express.static(clientDist, { index: false, maxAge: '1h' }));
-  app.get(/^(?!\/api|\/auth|\/socket\.io).*/, (req, res) => res.sendFile(path.join(clientDist, 'index.html')));
+  app.get(/^(?!\/api|\/auth|\/files|\/socket\.io).*/, (req, res) => res.sendFile(path.join(clientDist, 'index.html')));
 } else {
   app.get('/', (req, res) => res.type('text').send('Huddle server is up. Client not built — run `npm run build`.'));
 }
@@ -76,6 +81,9 @@ socket.attach(server, { corsOrigins });
 (async () => {
   await db.migrate();
   await bootstrap();
+  files.sweepOrphans().catch((err) => console.error('[files] sweep failed', err));
+  setInterval(() => files.sweepOrphans().catch(() => {}), 60 * 60 * 1000).unref();
+  console.log(`[files] uploads in ${files.UPLOAD_DIR}`);
   server.listen(PORT, () => console.log(`Huddle listening on :${PORT} (${SERVER_URL})`));
 })().catch((err) => {
   console.error('Startup failed:', err);

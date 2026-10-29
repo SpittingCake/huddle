@@ -5,6 +5,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const db = require('../db');
+const files = require('../helpers/files');
 const { requireAuth, requireOwner } = require('../helpers/sessions');
 const { broadcast } = require('../socket');
 
@@ -52,6 +53,23 @@ router.patch('/', requireOwner, async (req, res) => {
   const { rows } = await db.query('UPDATE server SET name = $1 WHERE id = 1 RETURNING id, name, icon_url, owner_id', [name]);
   changed();
   res.json({ server: rows[0] });
+});
+
+// POST /api/server/icon — owner only, multipart "file" (image ≤ 8 MB).
+router.post('/icon', requireOwner, (req, res, next) => files.imageUpload.single('file')(req, res, (err) => files.uploadErrors(err, req, res, next)), async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'no_file' });
+  const row = await files.record({ file: req.file, uploaderId: req.user.id, kind: 'icon' });
+  const url = files.urlFor(row.storage_key);
+  await files.replaceImage('server', 'icon_url', 1, url);
+  changed();
+  res.json({ icon_url: url });
+});
+
+// DELETE /api/server/icon — owner only.
+router.delete('/icon', requireOwner, async (req, res) => {
+  await files.replaceImage('server', 'icon_url', 1, null);
+  changed();
+  res.json({ icon_url: null });
 });
 
 // ── Channels ───────────────────────────────────────────────────────────────

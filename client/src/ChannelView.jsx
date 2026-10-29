@@ -1,25 +1,24 @@
-// The middle pane. Batch 2 only shows the channel header and a placeholder;
-// messages land here in batch 3, voice join/leave in batch 4.
+// The middle pane. Text channels get the message list (batch 3); voice
+// channels still show a placeholder until click-to-join lands in batch 4.
 
-export default function ChannelView({ channel }) {
+import Messages from './Messages.jsx';
+
+export default function ChannelView({ channel, user, members, onRead }) {
   if (!channel) return <div className="center muted">Pick a channel on the left.</div>;
 
-  const isVoice = channel.type === 'voice';
+  if (channel.type === 'text') {
+    return <Messages channel={channel} user={user} members={members} isOwner={user.role === 'owner'} onRead={onRead} />;
+  }
+
   return (
     <div className="channel-view">
       <header className="channel-header">
-        <span className="glyph">{isVoice ? '🔊' : '#'}</span>
+        <span className="glyph">🔊</span>
         <h2>{channel.name}</h2>
       </header>
       <div className="channel-body">
-        {isVoice ? (
-          <>
-            <p className="muted">Click-to-join voice lands in batch 4.</p>
-            <p className="muted">Until then, the throwaway test room is at <a href="/voice-test">/voice-test</a>.</p>
-          </>
-        ) : (
-          <p className="muted">Messages land here in batch 3.</p>
-        )}
+        <p className="muted">Click-to-join voice lands in batch 4.</p>
+        <p className="muted">Until then, the throwaway test room is at <a href="/voice-test">/voice-test</a>.</p>
       </div>
     </div>
   );
