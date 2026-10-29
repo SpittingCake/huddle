@@ -3,17 +3,24 @@
 Start every session here, after a git sync check (`git fetch` → ahead/behind/dirty).
 Plan and batch order: `Huddle-Plan.md` §5.
 
-## ▶ NEXT UP (2026-10-29)
+## ▶ NEXT UP (2026-10-29, evening)
 
-**Batch 1 — LiveKit on Railway: DEPLOYED 2026-10-29, solo join works (TCP). Needs the 10-minute test.**
-1. ~~Commit + push~~ done (`7a2f37e`). ~~Railway `huddle-livekit` service~~ done, wired to `huddle`.
-2. Invite link made (max 5 uses); 1 friend invited so far. Need 3 people total.
-3. All 3 open `/voice-test`, join, talk 10 minutes, each sends back **Copy diagnostics** → paste to Claude.
-4. Pass/fail rules are in `livekit/README.md` → "The test". Fail → "Fallback: LiveKit on a VPS" in the same file (compose file ready in `livekit/vps/`). Decide before batch 4.
+**Batch 2 — server & channels: BUILT 2026-10-29, uncommitted, needs Danny's push + a look on Railway.**
+1. Commit + push (`git add -A && git commit -m "Batch 2: server settings, channel/category CRUD, invite UI" && git push origin main`). Railway redeploys; migration `002_channels.sql` runs itself on boot.
+2. Smoke it live: sign in → gear next to the server name → rename the server, add a category + a channel, make an invite in the Invites tab (it copies the link). Open the link in a private window: it should say "You've been invited to <server>".
+3. Still open from batch 1: the 3-person 10-minute `/voice-test` (invite link exists; need 3 people). Pass/fail in `livekit/README.md`. Decide Railway-vs-VPS before batch 4.
+4. Still unconfirmed from batch 0: 2-device presence check (sign in on phone + Mac, both dots green).
 
-Still unconfirmed from batch 0: repo set to private; the 2-device presence check.
+Next session: **batch 3 (text channels)** — messages, replies, edit/delete, reactions, pins, attachments (needs the Railway volume), unread/mentions, typing, paging. Server icon + avatars ride along with attachments.
 
-Batch 2 (server & channels) can start next session — the Railway-vs-VPS call is only needed before batch 4.
+## Batch 2 — server & channels (built 2026-10-29)
+- Migration `002_channels.sql`: `categories` table + `channels.category_id` (nullable; deleting a category leaves its channels uncategorized).
+- `routes/server.js`: `PATCH /api/server` (name); channels `POST` / `PATCH :id` (name, category) / `DELETE :id` / `PUT order`; categories `POST` / `PATCH :id` / `DELETE :id` / `PUT order`; invites now return `url` + `created_by_name`. All writes owner-only and broadcast `server:changed` so every open client reloads. Text channel names are slugged (`Elden Ring Chat!` → `elden-ring-chat`); voice/category names kept as typed. The last text channel can't be deleted.
+- `routes/auth.js`: public `GET /auth/invite/:code` → `{ valid, server_name }` for the invite page (60/15 min rate limit).
+- `socket.js`: `broadcast(event, payload)` helper; no-op before `attach()` so tests don't need a socket.
+- Client: `Rail.jsx` (categories as collapsible headers, collapsed state in localStorage, selected channel, owner-only gear/+), `ChannelView.jsx` (header + placeholder), `Settings.jsx` (owner modal, lazy-loaded chunk: Overview / Channels / Invites — inline rename, category dropdown, ↑↓ reorder, delete with confirm, create invite with expiry + max uses and copy link, revoke), `Login.jsx` (invite preview, dead-link message, switch to sign-in). URL is `/c/<id>`; back/forward work. Main bundle still ~197 kB.
+- Tests: `server/test/channels.test.js` — 7 tests (invite preview, rename, slugging, categories, reorder, last-text-channel guard, invite list). Sandbox run: 12/12 incl. the 5 auth tests. Headless-Chromium smoke in the sandbox: 19 checks (two owner devices see each other's edits live, invite sign-up lands in the server, member has no gear, dead invite shows message).
+- Not done / deferred: drag-and-drop reorder (↑↓ buttons instead), server icon (needs uploads, batch 3), kick/ban (batch 6 with presence).
 
 ## Batch 1 — LiveKit (built + deployed 2026-10-29)
 - Railway has no inbound UDP → media runs over ICE/TCP through a Railway TCP proxy. `livekit/entrypoint.sh` advertises the proxy's IP + port and forwards 7881 to LiveKit (to the container IP — LiveKit drops ICE/TCP arriving on loopback; that bug was caught in the sandbox test).

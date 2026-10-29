@@ -18,6 +18,15 @@ const loginLimiter = rateLimit({
   message: { error: 'too_many_attempts' },
 });
 
+// Looser limit for the invite preview (it's read-only and public).
+const inviteLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: 'too_many_attempts' },
+});
+
 function publicUser(u) {
   return {
     id: u.id,
@@ -29,6 +38,14 @@ function publicUser(u) {
     custom_status: u.custom_status,
     activity_sharing: u.activity_sharing,
   };
+}
+
+function inviteIsValid(inv) {
+  return Boolean(
+    inv &&
+      !(inv.expires_at && new Date(inv.expires_at) < new Date()) &&
+      !(inv.max_uses != null && inv.uses >= inv.max_uses)
+  );
 }
 
 // POST /auth/login { username, password, device_label? }
@@ -47,6 +64,14 @@ router.post('/login', loginLimiter, async (req, res) => {
   res.json({ token, user: publicUser(user) });
 });
 
+// GET /auth/invite/:code — public. Lets the invite page say which server
+// you're joining (and whether the link still works) before you sign up.
+router.get('/invite/:code', inviteLimiter, async (req, res) => {
+  const inv = (await db.query('SELECT * FROM invites WHERE code = $1', [req.params.code])).rows[0];
+  const server = (await db.query('SELECT name FROM server WHERE id = 1')).rows[0];
+  res.json({ valid: inviteIsValid(inv), server_name: server?.name || 'Huddle' });
+});
+
 // POST /auth/register { invite, username, password, display_name, device_label? }
 // The only way in: a valid invite code.
 router.post('/register', loginLimiter, async (req, res) => {
@@ -61,11 +86,7 @@ router.post('/register', loginLimiter, async (req, res) => {
   try {
     await client.query('BEGIN');
     const inv = (await client.query('SELECT * FROM invites WHERE code = $1 FOR UPDATE', [invite.trim()])).rows[0];
-    const invalid =
-      !inv ||
-      (inv.expires_at && new Date(inv.expires_at) < new Date()) ||
-      (inv.max_uses != null && inv.uses >= inv.max_uses);
-    if (invalid) {
+    if (!inviteIsValid(inv)) {
       await client.query('ROLLBACK');
       return res.status(400).json({ error: 'invalid_invite' });
     }

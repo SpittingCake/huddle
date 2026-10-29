@@ -1,14 +1,17 @@
 // One Socket.IO connection per client. Batch 0: auth handshake + presence
-// (who's online). Messages, typing, voice membership come in later batches.
+// (who's online). Batch 2: `server:changed` tells every client to reload
+// /api/server after the owner edits channels, categories, or the server
+// name. Messages, typing, voice membership come in later batches.
 
 const { Server } = require('socket.io');
 const { resolveToken } = require('./helpers/sessions');
 
 // userId -> Set<socketId>. A user is "online" while they have ≥1 socket.
 const online = new Map();
+let io = null;
 
 function attach(httpServer, { corsOrigins }) {
-  const io = new Server(httpServer, {
+  io = new Server(httpServer, {
     cors: { origin: corsOrigins, credentials: true },
     // Keep the socket cheap when idle.
     pingInterval: 25_000,
@@ -45,4 +48,10 @@ function attach(httpServer, { corsOrigins }) {
   return io;
 }
 
-module.exports = { attach, online };
+// Fire-and-forget broadcast to every connected client. Safe to call before
+// attach() (e.g. in tests) — it just does nothing.
+function broadcast(event, payload) {
+  if (io) io.emit(event, payload || {});
+}
+
+module.exports = { attach, broadcast, online };
