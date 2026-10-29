@@ -3,20 +3,24 @@
 Start every session here, after a git sync check (`git fetch` → ahead/behind/dirty).
 Plan and batch order: `Huddle-Plan.md` §5.
 
-## ▶ NEXT UP (2026-10-20)
+## ▶ NEXT UP (2026-10-29)
 
-**Batch 0 — deploy + verify** (code built 2026-10-20, see §Batch 0 below)
-1. Commit + push batch 0.
-2. Railway: new project `huddle` → add Postgres (`huddle-postgres`) → add GitHub repo service (`huddle`) → set Variables from `server/.env.example` → generate a domain → set `SERVER_URL` to it → redeploy.
-3. Open the domain, sign in as the owner. Expect: #general + Lobby in the rail, yourself in Members as online.
-4. Open the same URL in a second browser (or phone) → Members shows 1 online in both; close one → back to the other showing it offline.
-5. Create an invite (no UI yet — see runbook note below), open `/invite/<code>` in a private window, make a test account, confirm it appears in Members.
+**Batch 1 — LiveKit on Railway: code done, needs deploy + the 10-minute test.**
+1. Commit + push batch 1 (Mac: `~/Dev/huddle`).
+2. Railway: add the `huddle-livekit` service and wire it to `huddle` — click-by-click in `livekit/README.md` → "Railway setup".
+3. Make 2 more accounts (Paul + one friend) with an invite (curl below), then all 3 open `/voice-test`, join, talk 10 minutes, and each sends back **Copy diagnostics**.
+4. Pass/fail rules are in `livekit/README.md` → "The test". Fail → "Fallback: LiveKit on a VPS" in the same file (compose file ready in `livekit/vps/`). Decide before batch 4.
 
-**Batch 1 — LiveKit on Railway** (next session)
-- Deploy `livekit/livekit-server` as `huddle-livekit`, a throwaway `/voice-test` page, 3 people in a room for 10 minutes.
-- If Railway UDP doesn't cooperate: LiveKit on a $6 VPS instead, everything else stays on Railway. Decide before batch 4.
+Still unconfirmed from batch 0: repo set to private; the 2-device presence check.
 
-## Batch 0 — skeleton (built 2026-10-20, NOT yet deployed)
+## Batch 1 — LiveKit (built 2026-10-29, NOT yet deployed)
+- Railway has no inbound UDP → media runs over ICE/TCP through a Railway TCP proxy. `livekit/entrypoint.sh` advertises the proxy's IP + port and forwards 7881 to LiveKit (to the container IP — LiveKit drops ICE/TCP arriving on loopback; that bug was caught in the sandbox test).
+- `livekit/`: Dockerfile (`livekit/livekit-server:v1.13.9` + socat), entrypoint, `railway.json`, README (Railway steps, test pass/fail, troubleshooting, VPS fallback), `vps/` (docker compose + Caddy, untested).
+- Server: `POST /api/voice/test-token` (signed-in users, room `voice-test`, 2 h token). Needs `LIVEKIT_URL` / `LIVEKIT_API_KEY` / `LIVEKIT_API_SECRET`.
+- Client: `/voice-test` page (lazy-loaded, so the main bundle stays ~190 kB): join/mute/leave, who's in + speaking ring, media path (TCP/UDP), round trip, loss, jitter, reconnects, 10-minute timer, Copy diagnostics. Throwaway — replaced by real voice channels in batch 4.
+- Sandbox test: real LiveKit 1.13.9 via the entrypoint, UDP blocked, fake port-renaming proxy, 3 headless Chromes → TCP, 0% loss, 0 reconnects, 2 min. Auth tests 5/5.
+
+## Batch 0 — skeleton (built 2026-10-20, deployed 2026-10-29)
 - `server/`: Express + helmet + CORS allow-list + rate-limited `/auth/login` + `/auth/register` (invite-only), per-device `sessions` + `token_version`, migrations runner, first-boot owner + server + `#general` / `Lobby`, Socket.IO presence (online/offline).
 - `client/`: login / invite sign-up, shell with rail (channels), main, members (live online dots), sign out (this device).
 - `server/test/auth.test.js` — 5 tests against a real Postgres.

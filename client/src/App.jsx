@@ -1,7 +1,9 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { io } from 'socket.io-client';
 import { api, getToken, setToken } from './api.js';
 import Login from './Login.jsx';
+// Voice pulls in livekit-client (~400 kB); only load it on the page that needs it.
+const VoiceTest = lazy(() => import('./VoiceTest.jsx'));
 
 // Batch 0 shell: sign in, load the server, show channels + members with live
 // online state over the socket. The real rail / chat / voice UI is batch 2+.
@@ -60,6 +62,11 @@ export default function App() {
 
   if (user === undefined) return <div className="center muted">Loading…</div>;
   if (!user) return <Login invite={invite} onLogin={onLogin} />;
+  if (window.location.pathname === '/voice-test') return (
+      <Suspense fallback={<div className="center muted">Loading…</div>}>
+        <VoiceTest user={user} />
+      </Suspense>
+    );
 
   return (
     <div className="shell">
@@ -86,6 +93,7 @@ export default function App() {
         <p className="muted">
           Sign-in, sessions, the server row, and live presence are working. Channels, messages and voice come in the next batches.
         </p>
+        <p><a href="/voice-test">Open the voice test →</a></p>
       </main>
 
       <aside className="members">

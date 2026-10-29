@@ -15,6 +15,7 @@
     "express-rate-limit": "^7.5.0",
     "helmet": "^8.0.0",
     "jsonwebtoken": "^9.0.2",
+    "livekit-server-sdk": "2.19.1",
     "pg": "^8.13.1",
     "socket.io": "^4.8.1"
   }

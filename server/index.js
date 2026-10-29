@@ -51,6 +51,7 @@ app.use(express.json({ limit: '256kb' }));
 app.get('/api/health', (req, res) => res.json({ ok: true, version: require('./package.json').version }));
 app.use('/auth', require('./routes/auth'));
 app.use('/api/server', require('./routes/server'));
+app.use('/api/voice', require('./routes/voice'));
 
 // Built client (client/dist). In dev, run `npm run dev:client` instead.
 const clientDist = path.join(__dirname, '..', 'client', 'dist');

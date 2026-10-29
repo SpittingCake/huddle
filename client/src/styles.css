@@ -81,3 +81,33 @@ button { font: inherit; }
   .shell { grid-template-columns: 200px 1fr; }
   .members { display: none; }
 }
+
+/* Voice test (batch 1, throwaway) */
+.voice-test { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 14px; }
+.voice-test header h1 { font-size: 24px; margin-top: 10px; }
+.voice-test a { color: var(--muted); text-decoration: none; }
+.vt-card { background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+.vt-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+button.primary, button.danger {
+  color: #fff; border: 0; border-radius: var(--radius); padding: 9px 16px; font-weight: 600; cursor: pointer;
+}
+button.primary { background: var(--accent); }
+button.danger { background: var(--danger); }
+button.primary:disabled { opacity: .6; cursor: default; }
+.vt-timer { font-variant-numeric: tabular-nums; color: var(--muted); }
+.vt-timer.done { color: var(--online); font-weight: 600; }
+.vt-warn { color: #f5a524; }
+.vt-people { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.vt-people li { display: flex; align-items: center; gap: 10px; padding: 6px 4px; }
+.vt-ring { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--border); flex: none; }
+.vt-people li.speaking .vt-ring { border-color: var(--online); background: color-mix(in srgb, var(--online) 35%, transparent); }
+.vt-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vt-tag { font-size: 11px; color: var(--danger); border: 1px solid var(--danger); border-radius: 4px; padding: 0 5px; }
+.vt-q { font-size: 12px; color: var(--muted); }
+.vt-q.q-excellent, .vt-q.q-good { color: var(--online); }
+.vt-q.q-poor { color: #f5a524; }
+.vt-q.q-lost { color: var(--danger); }
+.vt-stats { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; }
+.vt-stats dt { color: var(--muted); font-size: 13px; }
+.vt-stats dd { margin: 0; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.vt-log { margin: 10px 0 0; max-height: 220px; overflow: auto; font-size: 12px; color: var(--muted); white-space: pre-wrap; }

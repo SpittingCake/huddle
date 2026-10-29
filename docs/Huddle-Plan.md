@@ -87,6 +87,8 @@ Lives in its own repo on Danny's personal GitHub and its own Railway project.
 
 Why LiveKit: self-hosted SFU so 10 people × screen shares scale (mesh WebRTC dies around 4–5), Node server SDK for minting join tokens, React components for tracks, built-in VAD/noise suppression, handles screen share audio. Hosting is a flat monthly cost; no per-GB metering like Twilio TURN.
 
+**Update 2026-10-29:** Railway has no inbound UDP. Batch 1 runs LiveKit TCP-only through a Railway TCP proxy (`livekit/README.md`); the 10-minute test decides whether that's good enough.
+
 **Risk to retire first:** LiveKit on Railway needs UDP ports (or at least a TCP fallback + TURN/TLS). Railway's support for UDP has been inconsistent. Batch 1 proves this before anything else is built; fallback is a $6 VPS (Hetzner/DigitalOcean) running only LiveKit, with everything else staying on Railway.
 
 ### 4.2 Data model (Postgres)

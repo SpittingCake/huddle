@@ -1,0 +1,28 @@
+# VPS fallback for huddle-livekit (only if Railway's TCP-only media isn't good enough).
+# Same image as Railway; without Railway's variables it runs in "direct" mode:
+# UDP on 7882 + ICE/TCP on 7881, public IP discovered automatically.
+# Caddy gets a free HTTPS certificate for LIVEKIT_HOST and proxies signalling to LiveKit.
+# Steps: livekit/README.md → "Fallback: LiveKit on a VPS".
+
+services:
+  livekit:
+    build: ..
+    restart: unless-stopped
+    network_mode: host          # WebRTC needs the real ports, no Docker NAT
+    environment:
+      LIVEKIT_API_KEY: ${LIVEKIT_API_KEY}
+      LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET}
+      PORT: "7880"
+
+  caddy:
+    image: caddy:2.11.7
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      LIVEKIT_HOST: ${LIVEKIT_HOST}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+volumes:
+  caddy_data:
