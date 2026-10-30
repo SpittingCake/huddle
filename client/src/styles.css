@@ -448,3 +448,40 @@ label.check, label.radio { flex-direction: row !important; align-items: center; 
 .voice-grid { display: flex; flex-wrap: wrap; gap: 16px; }
 .voice-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 110px; }
 .voice-tile-name { font-weight: 600; font-size: 13px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Screen share (batch 5): viewer pane above the text channel */
+.main { overflow: hidden; }
+.main-text { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.main-text > * { flex: 1; min-height: 0; }
+.share-bar {
+  display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--border);
+  background: var(--bg-card); font-size: 13px; flex: none;
+}
+.share-bar .glyph { font-size: 16px; }
+.share-bar-text { flex: 1; min-width: 0; }
+.small-btn { padding: 5px 10px !important; font-size: 12px !important; }
+.share-view { display: flex; flex-direction: column; flex: none; min-height: 120px; position: relative; background: #000; }
+.share-view.dragging { user-select: none; }
+.share-head { display: flex; align-items: center; gap: 8px; padding: 6px 10px; background: var(--bg-rail); border-bottom: 1px solid var(--border); flex: none; }
+.share-tabs { display: flex; gap: 4px; min-width: 0; overflow: auto; }
+.share-tab { background: none; border: 1px solid transparent; color: var(--muted); border-radius: 6px; padding: 4px 10px; cursor: pointer; white-space: nowrap; font-size: 13px; }
+.share-tab:hover { color: var(--text); }
+.share-tab.active { background: var(--bg); color: var(--text); border-color: var(--border); }
+.share-stats { white-space: nowrap; }
+.fps-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.fps-toggle button { background: none; border: 0; color: var(--muted); padding: 4px 9px; font-size: 12px; cursor: pointer; }
+.fps-toggle button.active { background: var(--accent); color: #fff; }
+.share-stage { flex: 1; min-height: 0; position: relative; background: #000; display: grid; place-items: center; }
+.share-stage video { width: 100%; height: 100%; object-fit: contain; background: #000; }
+.share-stage:fullscreen video { object-fit: contain; }
+.share-hint { position: absolute; inset: 0; display: grid; place-items: center; font-size: 14px; pointer-events: none; }
+.share-exit-fs { position: absolute; top: 12px; right: 12px; }
+.share-divider { height: 6px; cursor: row-resize; background: var(--bg-rail); border-top: 1px solid var(--border); flex: none; }
+.share-divider:hover, .share-view.dragging .share-divider { background: var(--accent); }
+.voice-btn.on { background: rgba(62, 207, 142, .18); border-color: var(--online); }
+.share-live { display: flex; align-items: center; gap: 6px; color: var(--online); }
+.live-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--online); animation: pulse 1.6s ease-in-out infinite; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
+.voice-icon.share { opacity: 1; }
+.settings-sub { margin-top: 6px; }
+.person-popover > button.primary, .person-popover > button.ghost { width: 100%; margin-bottom: 8px; }

@@ -35,22 +35,24 @@ router.get('/state', (req, res) => {
 });
 
 router.use('/:channelId', async (req, res, next) => {
-  const id = Number(req.params.channelId);
-  if (!Number.isInteger(id)) return res.status(404).json({ error: 'not_found' });
-  const ch = (await db.query('SELECT id, type, name FROM channels WHERE id = $1', [id])).rows[0];
-  if (!ch) return res.status(404).json({ error: 'not_found' });
-  if (ch.type !== 'voice') return res.status(400).json({ error: 'not_voice_channel' });
-  req.channel = ch;
-  next();
+  try {
+    const id = Number(req.params.channelId);
+    if (!Number.isInteger(id)) return res.status(404).json({ error: 'not_found' });
+    const ch = (await db.query('SELECT id, type, name FROM channels WHERE id = $1', [id])).rows[0];
+    if (!ch) return res.status(404).json({ error: 'not_found' });
+    if (ch.type !== 'voice') return res.status(400).json({ error: 'not_voice_channel' });
+    req.channel = ch;
+    next();
+  } catch (err) { next(err); }
 });
 
-router.post('/:channelId/join', async (req, res) => {
+router.post('/:channelId/join', async (req, res, next) => {
   try {
     const out = await voice.mintToken(req.channel.id, req.user);
     res.json({ ...out, channel_id: req.channel.id, cap: voice.CAP });
   } catch (err) {
     if (err.code) return res.status(err.status || 400).json({ error: err.code, cap: err.cap });
-    throw err;
+    next(err); // Express 4 doesn't catch async throws — without this the request would hang
   }
 });
 

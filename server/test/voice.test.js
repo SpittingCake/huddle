@@ -1,6 +1,8 @@
 // Batch 4 tests: voice join tokens (claims, cap of 10, voice-channel-only,
 // unconfigured → 503), membership over the socket (join/status/leave/
 // disconnect broadcast voice:state), webhook signature + apply, state route.
+// Batch 5: screen-share `sharing` flag (socket status, join payload, track
+// webhooks, reconcile) and the mic + screen-share-only publish grant.
 // LiveKit itself isn't running here — LIVEKIT_URL points at a closed port, so
 // the "ask LiveKit" paths fall back to local membership.
 
@@ -91,6 +93,7 @@ test('join mints a LiveKit token with the right claims', async () => {
   assert.equal(claims.video.room, `channel-${lobbyId}`);
   assert.equal(claims.video.roomJoin, true);
   assert.equal(claims.video.canPublish, true);
+  assert.deepEqual(claims.video.canPublishSources, ['microphone', 'screen_share', 'screen_share_audio'], 'no camera');
   assert.equal(claims.video.canPublishData, false);
   assert.deepEqual(JSON.parse(claims.metadata), { user_id: 2 });
 
@@ -122,10 +125,10 @@ test('membership over the socket: joined / status / left / disconnect', async ()
   const seen = waitFor(b, 'voice:state', (p) => p.channel_id === lobbyId && p.members.length === 1);
   a.emit('voice:joined', { channel_id: lobbyId, muted: false, deafened: false });
   const st = await seen;
-  assert.deepEqual(st.members, [{ user_id: 1, muted: false, deafened: false }]);
+  assert.deepEqual(st.members, [{ user_id: 1, muted: false, deafened: false, sharing: false }]);
 
   const state = await call('/api/voice/state', { auth: member });
-  assert.deepEqual(state.json.channels, { [lobbyId]: [{ user_id: 1, muted: false, deafened: false }] });
+  assert.deepEqual(state.json.channels, { [lobbyId]: [{ user_id: 1, muted: false, deafened: false, sharing: false }] });
 
   const mutedSeen = waitFor(b, 'voice:state', (p) => p.members[0]?.muted === true);
   a.emit('voice:status', { muted: true });
@@ -191,4 +194,64 @@ test('join is 503 when LiveKit is not configured', async () => {
   assert.equal(r.status, 503);
   assert.equal(r.json.error, 'voice_not_configured');
   process.env.LIVEKIT_URL = saved;
+});
+
+test('screen share: sharing flag over the socket, join payload, webhooks, reconcile', async () => {
+  voice._reset();
+  const a = await connect(owner);
+  const b = await connect(member);
+  await b.snapshot;
+
+  a.emit('voice:joined', { channel_id: lobbyId });
+  await waitFor(b, 'voice:state', (p) => p.channel_id === lobbyId && p.members.length === 1);
+
+  // Start / stop sharing is just a status change; everyone's rail sees it.
+  const on = waitFor(b, 'voice:state', (p) => p.members[0]?.sharing === true);
+  a.emit('voice:status', { sharing: true });
+  const st = await on;
+  assert.deepEqual(st.members, [{ user_id: 1, muted: false, deafened: false, sharing: true }]);
+  assert.deepEqual(voice.sharers(lobbyId), [1]);
+  // Mute/deafen updates don't touch the flag.
+  const muted = waitFor(b, 'voice:state', (p) => p.members[0]?.muted === true);
+  a.emit('voice:status', { muted: true });
+  assert.equal((await muted).members[0].sharing, true);
+  const off = waitFor(b, 'voice:state', (p) => p.members[0]?.sharing === false);
+  a.emit('voice:status', { sharing: false });
+  await off;
+  assert.deepEqual(voice.sharers(lobbyId), []);
+
+  // Re-reporting after a socket reconnect carries the flag in the join payload.
+  const rejoin = waitFor(b, 'voice:state', (p) => p.members[0]?.sharing === true);
+  a.emit('voice:joined', { channel_id: lobbyId, sharing: true });
+  await rejoin;
+
+  // LiveKit track webhooks flip it too (string or enum source; audio ignored).
+  const { AccessToken } = require('livekit-server-sdk');
+  const crypto = require('crypto');
+  const sign = async (body) => {
+    const at = new AccessToken(process.env.LIVEKIT_API_KEY, process.env.LIVEKIT_API_SECRET, { ttl: '5m' });
+    at.sha256 = crypto.createHash('sha256').update(body).digest('base64');
+    return at.toJwt();
+  };
+  const post = async (ev) => { const body = JSON.stringify(ev); return call('/api/voice/webhook', { method: 'POST', raw: body, headers: { 'Content-Type': 'application/webhook+json', Authorization: await sign(body) } }); };
+  const room = { name: `channel-${lobbyId}` };
+  assert.equal((await post({ event: 'track_unpublished', room, participant: { identity: 'u1' }, track: { source: 'SCREEN_SHARE', type: 'VIDEO' } })).status, 200);
+  assert.deepEqual(voice.sharers(lobbyId), []);
+  assert.equal((await post({ event: 'track_published', room, participant: { identity: 'u1' }, track: { source: 'SCREEN_SHARE', type: 'VIDEO' } })).status, 200);
+  assert.deepEqual(voice.sharers(lobbyId), [1]);
+  await post({ event: 'track_unpublished', room, participant: { identity: 'u1' }, track: { source: 'SCREEN_SHARE_AUDIO', type: 'AUDIO' } });
+  assert.deepEqual(voice.sharers(lobbyId), [1], 'the share audio track going away is not the share ending');
+  await post({ event: 'track_published', room, participant: { identity: 'u1' }, track: { source: 'MICROPHONE', type: 'AUDIO' } });
+  assert.deepEqual(voice.sharers(lobbyId), [1]);
+  await post({ event: 'track_published', room, participant: { identity: 'u2' }, track: { source: 'SCREEN_SHARE', type: 'VIDEO' } });
+  assert.deepEqual(voice.sharers(lobbyId), [1], 'someone not in the channel is ignored');
+
+  // Reconcile with LiveKit unreachable leaves the flag alone.
+  await voice.reconcile();
+  assert.deepEqual(voice.sharers(lobbyId), [1]);
+
+  a.disconnect();
+  await waitFor(b, 'voice:state', (p) => p.channel_id === lobbyId && p.members.length === 0);
+  b.disconnect();
+  voice._reset();
 });

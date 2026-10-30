@@ -4,7 +4,8 @@ import { keyLabel } from './voiceStore.js';
 
 // Bottom-left voice panel (plan §3.4): channel name, connection quality,
 // mute / deafen / share / disconnect, and a gear for voice settings.
-// Only rendered while you're in (or joining) a voice channel.
+// Only rendered while you're in (or joining) a voice channel. The share
+// button (batch 5) starts/stops your screen share; it lights up while sharing.
 
 const VoiceSettings = lazy(() => import('./VoiceSettings.jsx'));
 
@@ -49,9 +50,27 @@ export default function VoicePanel({ channel }) {
           🎧
           {v.deafened && <span className="slash" />}
         </button>
-        <button type="button" className="voice-btn" disabled title="Screen share lands in batch 5">🖥️</button>
+        <button
+          type="button"
+          className={`voice-btn${v.sharing ? ' on' : ''}`}
+          disabled={v.phase !== 'connected' || !voice.canShare()}
+          onClick={voice.toggleShare}
+          title={!voice.canShare() ? 'Screen sharing isn’t supported in this browser' : v.sharing ? 'Stop sharing your screen' : `Share your screen (${v.settings.shareFps >= 60 ? 60 : 30} fps${v.settings.shareAudio ? ', with audio' : ''})`}
+        >
+          🖥️
+        </button>
         <button type="button" className="voice-btn hang" onClick={() => voice.leave()} title="Disconnect">📵</button>
       </div>
+
+      {v.sharing && (
+        <div className="small share-live">
+          <span className="live-dot" /> Sharing{v.shareHasAudio ? ' with audio' : ''}
+          {!v.shareHasAudio && v.settings.shareAudio && <span className="muted"> — no audio (tick “Share audio” in the picker)</span>}
+        </div>
+      )}
+      {v.shareError && (
+        <div className="error small">{v.shareError} <button type="button" className="link" onClick={() => voice.set({ shareError: null })}>✕</button></div>
+      )}
 
       {v.settings.mode === 'ptt' && v.phase === 'connected' && (
         <div className={`muted small ptt-hint${v.gateOpen ? ' live' : ''}`}>

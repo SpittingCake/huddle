@@ -5,6 +5,7 @@
 // routes; typing goes client → server → everyone else; read markers go to
 // the one user's own devices only. Batch 4: voice membership (helpers/voice.js)
 // is reported by clients here and pushed to everyone as `voice:state`.
+// Batch 5: the same status carries `sharing` (screen share up).
 
 const { Server } = require('socket.io');
 const { resolveToken } = require('./helpers/sessions');
@@ -59,10 +60,10 @@ function attach(httpServer, { corsOrigins }) {
     socket.on('voice:joined', (payload) => {
       const channelId = Number(payload?.channel_id);
       if (!Number.isInteger(channelId)) return;
-      voice.add(channelId, uid, { socket_id: socket.id, muted: Boolean(payload?.muted), deafened: Boolean(payload?.deafened) });
+      voice.add(channelId, uid, { socket_id: socket.id, muted: Boolean(payload?.muted), deafened: Boolean(payload?.deafened), sharing: Boolean(payload?.sharing) });
     });
     socket.on('voice:left', () => voice.remove(uid));
-    socket.on('voice:status', (payload) => voice.setStatus(uid, { muted: payload?.muted, deafened: payload?.deafened }));
+    socket.on('voice:status', (payload) => voice.setStatus(uid, { muted: payload?.muted, deafened: payload?.deafened, sharing: payload?.sharing }));
 
     socket.on('disconnect', () => {
       voice.socketGone(uid, socket.id);

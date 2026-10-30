@@ -7,7 +7,9 @@ import * as voice from './voiceStore.js';
 // the voice panel while you're in a call, and you at the bottom. Text
 // channels select; voice channels JOIN on click (the middle pane stays on
 // your text channel, like Discord). People in a voice channel stack under
-// it with a speaking ring; click one for volume / local mute.
+// it with a speaking ring; click one for volume / local mute. Someone sharing
+// their screen gets a 🖥️ (batch 5); the popover offers Watch when you're in
+// the same channel.
 
 const COLLAPSE_KEY = 'huddle_collapsed_categories';
 function loadCollapsed() {
@@ -83,11 +85,12 @@ export default function Rail({ data, user, unread, voiceState, channelId, onSele
                 <li
                   key={m.user_id}
                   className={`voice-person${speaking ? ' speaking' : ''}${isMe ? ' me' : ''}`}
-                  onClick={(e) => { e.stopPropagation(); if (!isMe) setPerson({ userId: m.user_id, anchor: e.currentTarget }); }}
-                  title={isMe ? 'You' : 'Volume / mute for me'}
+                  onClick={(e) => { e.stopPropagation(); if (!isMe) setPerson({ userId: m.user_id, anchor: e.currentTarget, sharing: m.sharing, sameChannel: mine }); }}
+                  title={isMe ? 'You' : m.sharing && mine ? 'Watch their screen / volume' : 'Volume / mute for me'}
                 >
                   <span className="voice-ring"><Avatar user={member} size={20} /></span>
                   <span className="voice-person-name">{member.display_name}</span>
+                  {m.sharing && <span className="voice-icon share" title="Sharing their screen">🖥️</span>}
                   {localMuted && <span className="voice-icon" title="Muted for you">🔇</span>}
                   {m.deafened ? <span className="voice-icon" title="Deafened">🎧</span> : m.muted ? <span className="voice-icon" title="Muted">🎤</span> : null}
                 </li>
@@ -157,13 +160,13 @@ export default function Rail({ data, user, unread, voiceState, channelId, onSele
         <button className="ghost" onClick={onSignOut} title="Sign out of this device">Sign out</button>
       </div>
 
-      {person && <PersonPopover userId={person.userId} anchor={person.anchor} members={members} onClose={() => setPerson(null)} />}
+      {person && <PersonPopover userId={person.userId} anchor={person.anchor} members={members} sharing={person.sharing} sameChannel={person.sameChannel} onClose={() => setPerson(null)} />}
     </aside>
   );
 }
 
 // Volume + "mute for me" for one person in voice. Per-browser setting.
-function PersonPopover({ userId, anchor, members, onClose }) {
+function PersonPopover({ userId, anchor, members, sharing, sameChannel, onClose }) {
   const v = voice.useVoice();
   const p = voice.personFor(userId);
   const ref = useRef(null);
@@ -184,6 +187,12 @@ function PersonPopover({ userId, anchor, members, onClose }) {
         <Avatar user={member} size={24} />
         <strong>{member?.display_name || '…'}</strong>
       </div>
+      {sharing && sameChannel && (
+        v.watching === userId
+          ? <button type="button" className="ghost" onClick={() => { voice.stopWatching(); onClose(); }}>Stop watching</button>
+          : <button type="button" className="primary" onClick={() => { voice.watch(userId); onClose(); }}>🖥️ Watch their screen</button>
+      )}
+      {sharing && !sameChannel && <div className="muted small">Sharing their screen — join the channel to watch.</div>}
       <label>
         Volume — {Math.round(p.volume * 100)}%
         <input type="range" min={0} max={200} value={Math.round(p.volume * 100)} onChange={(e) => voice.updatePerson(userId, { volume: Number(e.target.value) / 100 })} disabled={p.muted} />

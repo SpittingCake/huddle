@@ -1,11 +1,22 @@
 // The voice engine: one LiveKit room at a time, a gated microphone chain
 // (voice activity or push-to-talk), deafen, per-person volume, join/leave
-// sounds, and connection stats. Loaded lazily by voiceStore.js.
+// sounds, connection stats, and (batch 5) screen share. Loaded lazily by
+// voiceStore.js.
 //
 // Mic chain:  getUserMedia → AudioContext source → GainNode (the gate)
 //             → MediaStreamDestination → published to LiveKit.
 // The gate flips instantly (no track re-publishing), so push-to-talk has
 // no lag and voice activity doesn't clip the first syllable much.
+//
+// Screen share (plan §3.5): getDisplayMedia (window or screen, with system
+// audio where the browser offers it — Chrome/Edge on Windows do; the desktop
+// app in batch 7 supplies the picker + loopback audio through Electron's
+// setDisplayMediaRequestHandler/desktopCapturer, so this code doesn't change)
+// → published as a ScreenShare video track (+ ScreenShareAudio). 1080p30 by
+// default, 60 fps toggle. Several people can share at once; a viewer picks
+// whose share to watch, and ONLY that share is subscribed (plan §4.4: no
+// bandwidth or decode spent on shares nobody is looking at — the room
+// connects with autoSubscribe off and we subscribe mics ourselves).
 
 import { Room, RoomEvent, Track, ConnectionQuality, DisconnectReason } from 'livekit-client';
 
@@ -32,6 +43,9 @@ let reconnects = 0;
 let joinedAt = 0;
 let joinSeq = 0;
 let mutedBeforeDeafen = false;
+let share = null;       // { stream, video, audio } — my screen share
+let watchEl = null;     // the <video> in the viewer pane (ShareView mounts/unmounts it)
+let lastShareBytes = null;
 
 const HOLD_MS = 350;
 
@@ -42,6 +56,7 @@ const QUALITY = {
   [ConnectionQuality.Lost]: 'lost',
 };
 const userFromIdentity = (id) => { const m = /^u(\d+)$/.exec(id || ''); return m ? Number(m[1]) : null; };
+const myId = () => (room ? userFromIdentity(room.localParticipant.identity) : null);
 const clock = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 const addLog = (line) => set((s) => ({ log: [...s.log.slice(-199), `${clock()}  ${line}`] }));
 
@@ -201,7 +216,79 @@ function applyPerson(p) {
   const uid = userFromIdentity(p.identity);
   if (uid == null) return;
   const person = personFor(uid);
-  p.setVolume(get().deafened || person.muted ? 0 : person.volume);
+  const off = get().deafened || person.muted;
+  p.setVolume(off ? 0 : person.volume);
+  // Their share's audio follows "mute for me" and deafen, but not the slider.
+  p.setVolume(off ? 0 : 1, Track.Source.ScreenShareAudio);
+}
+
+// autoSubscribe is off (see header): mics are always wanted, screen shares
+// only while watching that person.
+function wantTrack(pub, p) {
+  if (!pub || p === room?.localParticipant) return;
+  if (pub.source === Track.Source.Microphone) { if (!pub.isSubscribed) pub.setSubscribed(true); return; }
+  if (pub.source === Track.Source.ScreenShare || pub.source === Track.Source.ScreenShareAudio) {
+    const want = get().watching != null && get().watching === userFromIdentity(p.identity);
+    if (pub.isSubscribed !== want) pub.setSubscribed(want);
+  }
+}
+function syncSubscriptions() {
+  if (!room) return;
+  for (const p of room.remoteParticipants.values()) for (const pub of p.trackPublications.values()) wantTrack(pub, p);
+}
+
+// Who has a screen share up in this room (me included) → store.shares.
+function refreshShares() {
+  if (!room) return;
+  const shares = [];
+  for (const p of [room.localParticipant, ...room.remoteParticipants.values()]) {
+    const uid = userFromIdentity(p.identity);
+    if (uid != null && p.getTrackPublication(Track.Source.ScreenShare)) shares.push(uid);
+  }
+  const { watching } = get();
+  set({ shares });
+  if (watching != null && !shares.includes(watching)) watch(null, { quiet: true });
+}
+
+// Put the watched share's video on the viewer pane's <video>.
+function attachWatched() {
+  if (!watchEl || !room) return;
+  const { watching } = get();
+  const me = myId();
+  let track = null;
+  if (watching === me) track = share?.video?.track || room.localParticipant.getTrackPublication(Track.Source.ScreenShare)?.track;
+  else if (watching != null) {
+    for (const p of room.remoteParticipants.values()) {
+      if (userFromIdentity(p.identity) === watching) track = p.getTrackPublication(Track.Source.ScreenShare)?.track;
+    }
+  }
+  if (track) { track.attach(watchEl); watchEl.muted = true; watchEl.play?.().catch(() => {}); }
+  else { try { watchEl.srcObject = null; } catch {} }
+}
+
+export function attachShare(el) {
+  // ShareView calls this with its element on mount and null on unmount.
+  if (watchEl && watchEl !== el) { try { watchEl.srcObject = null; } catch {} }
+  watchEl = el;
+  attachWatched();
+}
+
+export function watch(userId, { quiet } = {}) {
+  const prev = get().watching;
+  if (prev === userId) return;
+  if (userId != null && !get().shares.includes(userId)) return;
+  set({ watching: userId });
+  if (!quiet) addLog(userId == null ? 'stopped watching' : `watching ${nameOf(userId)}'s share`);
+  syncSubscriptions();          // unsubscribes the old one, subscribes the new one
+  attachWatched();              // local share (or an already-subscribed track) shows at once
+}
+
+function nameOf(uid) {
+  if (!room) return `u${uid}`;
+  for (const p of [room.localParticipant, ...room.remoteParticipants.values()]) {
+    if (userFromIdentity(p.identity) === uid) return p.name || p.identity;
+  }
+  return `u${uid}`;
 }
 
 export async function join(ch) {
@@ -210,7 +297,7 @@ export async function join(ch) {
   if (room) await leave({ silent: true });
   channel = ch;
   reconnects = 0;
-  set({ phase: 'connecting', channelId: ch.id, error: null, log: [], stats: {}, speaking: [], remoteMuted: [] });
+  set({ phase: 'connecting', channelId: ch.id, error: null, log: [], stats: {}, speaking: [], remoteMuted: [], shares: [], watching: null, shareError: null });
   addLog(`joining ${ch.name}`);
   try {
     const { url, token } = await api(`/api/voice/${ch.id}/join`, { method: 'POST' });
@@ -218,13 +305,25 @@ export async function join(ch) {
     const r = new Room({ webAudioMix: true, adaptiveStream: false, dynacast: false });
     room = r;
     r.on(RoomEvent.ParticipantConnected, (p) => { addLog(`${p.name || p.identity} joined`); applyPerson(p); SOUND.someoneJoined(); refreshParticipants(); })
-      .on(RoomEvent.ParticipantDisconnected, (p) => { addLog(`${p.name || p.identity} left`); SOUND.someoneLeft(); refreshParticipants(); })
+      .on(RoomEvent.ParticipantDisconnected, (p) => { addLog(`${p.name || p.identity} left`); SOUND.someoneLeft(); refreshParticipants(); refreshShares(); })
+      .on(RoomEvent.TrackPublished, (pub, p) => { wantTrack(pub, p); if (pub.source === Track.Source.ScreenShare) { addLog(`${p.name || p.identity} started sharing`); refreshShares(); } })
+      .on(RoomEvent.TrackUnpublished, (pub, p) => { if (pub.source === Track.Source.ScreenShare) { addLog(`${p.name || p.identity} stopped sharing`); refreshShares(); } })
+      .on(RoomEvent.LocalTrackPublished, refreshShares)
+      .on(RoomEvent.LocalTrackUnpublished, refreshShares)
       .on(RoomEvent.ActiveSpeakersChanged, refreshParticipants)
       .on(RoomEvent.TrackMuted, refreshParticipants)
       .on(RoomEvent.TrackUnmuted, refreshParticipants)
       .on(RoomEvent.ConnectionQualityChanged, refreshParticipants)
-      .on(RoomEvent.TrackSubscribed, (track, pub, p) => { if (track.kind === Track.Kind.Audio) { track.attach(); applyPerson(p); } refreshParticipants(); })
-      .on(RoomEvent.TrackUnsubscribed, (track) => { track.detach().forEach((el) => el.remove()); refreshParticipants(); })
+      .on(RoomEvent.TrackSubscribed, (track, pub, p) => {
+        if (track.kind === Track.Kind.Audio) { track.attach(); applyPerson(p); }
+        else if (pub.source === Track.Source.ScreenShare) attachWatched();
+        refreshParticipants();
+      })
+      .on(RoomEvent.TrackUnsubscribed, (track, pub) => {
+        if (pub.source === Track.Source.ScreenShare && watchEl) { track.detach(watchEl); try { watchEl.srcObject = null; } catch {} }
+        else track.detach().forEach((el) => el.remove());
+        refreshParticipants();
+      })
       .on(RoomEvent.AudioPlaybackStatusChanged, () => set({ needsAudioClick: !r.canPlaybackAudio }))
       .on(RoomEvent.Reconnecting, () => { reconnects++; set({ phase: 'reconnecting' }); addLog('connection dropped — reconnecting'); })
       .on(RoomEvent.Reconnected, () => { set({ phase: 'connected' }); addLog('reconnected'); })
@@ -236,15 +335,17 @@ export async function join(ch) {
           : reason === DisconnectReason.PARTICIPANT_REMOVED ? 'you were removed' : null;
         addLog(`disconnected${why ? ` (${why})` : ''}`);
         cleanup();
-        set({ phase: 'idle', channelId: null, error: why, speaking: [], remoteMuted: [], needsAudioClick: false });
+        set({ phase: 'idle', channelId: null, error: why, speaking: [], remoteMuted: [], needsAudioClick: false, sharing: false, shareHasAudio: false, shares: [], watching: null });
         socket.emit('voice:left');
       });
 
     await buildChain();
     if (seq !== joinSeq) { teardownChain(); r.disconnect(); return; }
     addLog(`connecting to ${url}`);
-    await r.connect(url, token);
+    await r.connect(url, token, { autoSubscribe: false });
     if (seq !== joinSeq) { r.disconnect(); return; }
+    syncSubscriptions();
+    refreshShares();
     await r.localParticipant.publishTrack(chain.track, { source: Track.Source.Microphone, dtx: true, red: true, name: 'mic' });
     const s = get();
     if (s.muted) await setMicMuted(true);
@@ -277,6 +378,8 @@ function cleanup() {
   clearInterval(statsTimer);
   statsTimer = null;
   teardownChain();
+  stopShareTracks();
+  if (watchEl) { try { watchEl.srcObject = null; } catch {} }
   room = null;
   channel = null;
   pttHeld = false;
@@ -290,7 +393,7 @@ export async function leave({ silent } = {}) {
   channel = null;
   cleanup();
   socket.emit('voice:left');
-  set({ phase: 'idle', channelId: null, speaking: [], remoteMuted: [], needsAudioClick: false, error: null });
+  set({ phase: 'idle', channelId: null, speaking: [], remoteMuted: [], needsAudioClick: false, error: null, sharing: false, shareHasAudio: false, shares: [], watching: null });
   if (!silent) SOUND.leave();
   await r.disconnect();
   addLog('left');
@@ -347,11 +450,123 @@ export async function startAudio() {
 export function reportJoined() {
   const s = get();
   if (!room || s.channelId == null) return;
-  socket.emit('voice:joined', { channel_id: s.channelId, muted: s.muted, deafened: s.deafened });
+  socket.emit('voice:joined', { channel_id: s.channelId, muted: s.muted, deafened: s.deafened, sharing: s.sharing });
 }
 function reportStatus() {
   const s = get();
-  if (room) socket.emit('voice:status', { muted: s.muted, deafened: s.deafened });
+  if (room) socket.emit('voice:status', { muted: s.muted, deafened: s.deafened, sharing: s.sharing });
+}
+
+// ── screen share ──
+
+const SHARE_BITRATE = { 30: 4_000_000, 60: 8_000_000 }; // bps, 1080p
+
+async function getDisplayStream(fps, wantAudio) {
+  // The desktop app (batch 7) can override the picker; browsers use getDisplayMedia.
+  if (window.huddleDesktop?.getDisplayMedia) return window.huddleDesktop.getDisplayMedia({ fps, audio: wantAudio });
+  return navigator.mediaDevices.getDisplayMedia({
+    video: { frameRate: { ideal: fps, max: fps }, width: { max: 1920 }, height: { max: 1080 } },
+    // Raw audio: no echo cancellation / noise suppression on game sound.
+    audio: wantAudio ? { echoCancellation: false, noiseSuppression: false, autoGainControl: false } : false,
+    systemAudio: 'include',       // Chrome: offer system audio when sharing a screen
+    selfBrowserSurface: 'exclude', // don't offer the Huddle tab itself
+    surfaceSwitching: 'include',   // let the sharer switch windows from the browser's bar
+  });
+}
+
+export async function startShare() {
+  if (!room || share || get().phase !== 'connected') return;
+  const { shareFps, shareAudio } = get().settings;
+  const fps = shareFps >= 60 ? 60 : 30;
+  set({ shareError: null });
+  let stream;
+  try {
+    stream = await getDisplayStream(fps, shareAudio);
+  } catch (err) {
+    if (err?.name === 'NotAllowedError') return; // they closed the picker — not an error
+    addLog(`share failed: ${err?.message || err}`);
+    set({ shareError: /NotSupported|not supported|getDisplayMedia/i.test(String(err)) ? 'Screen sharing isn’t supported in this browser.' : 'Couldn’t start sharing. Try again.' });
+    return;
+  }
+  const video = stream.getVideoTracks()[0];
+  const audio = stream.getAudioTracks()[0] || null;
+  if (!video) return;
+  video.contentHint = fps >= 60 ? 'motion' : 'detail';
+  share = { stream, video: null, audio: null };
+  video.addEventListener('ended', () => { if (share?.stream === stream) stopShare(); }); // the browser's own "Stop sharing" bar
+  try {
+    share.video = await room.localParticipant.publishTrack(video, {
+      source: Track.Source.ScreenShare,
+      name: 'screen',
+      simulcast: false,
+      screenShareEncoding: { maxBitrate: SHARE_BITRATE[fps], maxFramerate: fps },
+      degradationPreference: fps >= 60 ? 'maintain-framerate' : 'balanced',
+    });
+    if (audio) {
+      share.audio = await room.localParticipant.publishTrack(audio, { source: Track.Source.ScreenShareAudio, name: 'screen-audio', dtx: false, red: false, audioPreset: { maxBitrate: 128_000 } });
+    }
+  } catch (err) {
+    addLog(`share publish failed: ${err?.message || err}`);
+    stopShareTracks();
+    set({ shareError: 'Couldn’t start sharing. Try again.' });
+    return;
+  }
+  const settings = video.getSettings?.() || {};
+  lastShareBytes = null;
+  set({ sharing: true, shareHasAudio: Boolean(audio), shareError: null });
+  addLog(`sharing ${settings.displaySurface || 'screen'} ${settings.width || '?'}×${settings.height || '?'} @ ${fps} fps${audio ? ' + audio' : ''}`);
+  refreshShares();
+  reportStatus();
+  SOUND.unmute();
+}
+
+function stopShareTracks() {
+  if (!share) return;
+  const sh = share;
+  share = null;
+  try { sh.stream.getTracks().forEach((t) => t.stop()); } catch {}
+  if (room) {
+    for (const pub of [sh.video, sh.audio]) {
+      if (pub?.track) room.localParticipant.unpublishTrack(pub.track, true).catch(() => {});
+    }
+  }
+}
+
+export async function stopShare() {
+  if (!share) return;
+  stopShareTracks();
+  const me = myId();
+  set((s) => ({ sharing: false, shareHasAudio: false, watching: s.watching === me ? null : s.watching, stats: { ...s.stats, share: undefined } }));
+  addLog('stopped sharing');
+  refreshShares();
+  reportStatus();
+  SOUND.mute();
+}
+
+export async function toggleShare() {
+  if (share) return stopShare();
+  return startShare();
+}
+
+// Flip 30 ↔ 60 while sharing, without re-publishing.
+async function applyShareFps(fps) {
+  if (!share?.video?.track) return;
+  const mst = share.video.track.mediaStreamTrack;
+  mst.contentHint = fps >= 60 ? 'motion' : 'detail';
+  try { await mst.applyConstraints({ frameRate: { ideal: fps, max: fps } }); } catch {}
+  const sender = share.video.track.sender;
+  if (sender) {
+    try {
+      const params = sender.getParameters();
+      if (params.encodings?.length) {
+        params.encodings[0].maxFramerate = fps;
+        params.encodings[0].maxBitrate = SHARE_BITRATE[fps];
+        params.degradationPreference = fps >= 60 ? 'maintain-framerate' : 'balanced';
+        await sender.setParameters(params);
+      }
+    } catch {}
+  }
+  addLog(`share now ${fps} fps`);
 }
 
 // ── settings / people hooks (called by the store) ──
@@ -361,6 +576,7 @@ export function settingsChanged(patch) {
   if ('outputId' in patch && room) room.switchActiveDevice('audiooutput', patch.outputId || 'default').catch(() => {});
   if ('noise' in patch && chain) swapInput(get().settings.inputId).catch(() => {});
   if ('mode' in patch) pttHeld = false;
+  if ('shareFps' in patch) applyShareFps(patch.shareFps >= 60 ? 60 : 30).catch(() => {});
 }
 
 export function personChanged(userId, person) {
@@ -420,7 +636,19 @@ function startStats() {
       const r = readStats(await pub?.track?.getRTCStatsReport().catch(() => undefined));
       if (worst.lossPct == null || (r.lossPct ?? 0) > worst.lossPct) worst = r;
     }
-    set({ stats: { protocol: send.protocol, relay: send.relay, server: send.server, rttMs: send.rttMs, lossPct: worst.lossPct, jitterMs: worst.jitterMs, reconnects } });
+    let shareStats;
+    if (share?.video?.track) {
+      const report = await share.video.track.getRTCStatsReport().catch(() => undefined);
+      report?.forEach((st) => {
+        if (st.type === 'outbound-rtp' && st.kind === 'video') {
+          const now = Date.now();
+          const kbps = lastShareBytes ? Math.round(((st.bytesSent - lastShareBytes.bytes) * 8) / ((now - lastShareBytes.at) / 1000) / 1000) : undefined;
+          lastShareBytes = { bytes: st.bytesSent, at: now };
+          shareStats = { fps: st.framesPerSecond, kbps, width: st.frameWidth, height: st.frameHeight, limited: st.qualityLimitationReason !== 'none' ? st.qualityLimitationReason : undefined };
+        }
+      });
+    }
+    set({ stats: { protocol: send.protocol, relay: send.relay, server: send.server, rttMs: send.rttMs, lossPct: worst.lossPct, jitterMs: worst.jitterMs, reconnects, share: shareStats } });
   }, 3000);
 }
 
@@ -436,6 +664,7 @@ export function diagnostics() {
     `mode: ${s.settings.mode}${s.settings.mode === 'vad' ? ` @ ${s.settings.threshold} dB` : ` (${s.settings.pttKey})`} · noise suppression: ${s.settings.noise ? 'on' : 'off'}`,
     `transport: ${s.stats.protocol || '—'}${s.stats.relay ? ' (relay)' : ''} → ${s.stats.server || '—'}`,
     `rtt: ${n(s.stats.rttMs, ' ms')} · recv loss (worst): ${n(s.stats.lossPct, '%')} · recv jitter: ${n(s.stats.jitterMs, ' ms')} · reconnects: ${reconnects}`,
+    `screen share: ${s.sharing ? `sending ${s.stats.share?.width || '?'}×${s.stats.share?.height || '?'} @ ${n(s.stats.share?.fps, ' fps')} · ${n(s.stats.share?.kbps, ' kbps')}${s.stats.share?.limited ? ` · limited by ${s.stats.share.limited}` : ''}${s.shareHasAudio ? ' · with audio' : ' · no audio'} (setting: ${s.settings.shareFps} fps)` : 'off'}${s.watching != null ? ` · watching ${nameOf(s.watching)}` : ''} · shares in room: ${s.shares.length}`,
     '',
     ...s.log,
   ].join('\n');

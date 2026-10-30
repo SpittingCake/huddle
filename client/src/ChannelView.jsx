@@ -1,6 +1,7 @@
 // The middle pane. Text channels get the message list (batch 3). A voice
 // channel selected via its URL shows who's in it and a join/leave button —
 // day to day you join from the rail and this pane stays on a text channel.
+// Tiles show who's sharing a screen with a Watch button (batch 5).
 
 import Messages from './Messages.jsx';
 import Avatar from './Avatar.jsx';
@@ -35,7 +36,12 @@ export default function ChannelView({ channel, user, members, onRead, voiceMembe
                 <div key={m.user_id} className={`voice-tile${speaking ? ' speaking' : ''}`}>
                   <span className="voice-ring big"><Avatar user={member} size={64} /></span>
                   <span className="voice-tile-name">{member.display_name}</span>
-                  <span className="muted small">{m.deafened ? '🎧 deafened' : m.muted ? '🎤 muted' : ''}</span>
+                  <span className="muted small">{m.deafened ? '🎧 deafened' : m.muted ? '🎤 muted' : ''}{m.sharing ? ' 🖥️ sharing' : ''}</span>
+                  {m.sharing && mine && m.user_id !== user.id && (
+                    v.watching === m.user_id
+                      ? <button type="button" className="ghost small-btn" onClick={() => voice.stopWatching()}>Stop watching</button>
+                      : <button type="button" className="primary small-btn" onClick={() => voice.watch(m.user_id)}>Watch</button>
+                  )}
                 </div>
               );
             })}

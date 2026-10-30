@@ -8,12 +8,13 @@
 //   3. every 30 s we ask LiveKit who is really in each busy room and drop
 //      anyone it doesn't know about (crashed tab, lost laptop).
 
-const { RoomServiceClient, AccessToken, WebhookReceiver } = require('livekit-server-sdk');
+const { RoomServiceClient, AccessToken, WebhookReceiver, TrackSource } = require('livekit-server-sdk');
 
 const CAP = 10;
 const RECONCILE_MS = 30_000;
 
-// channelId -> Map<userId, { user_id, muted, deafened, socket_id, since }>
+// channelId -> Map<userId, { user_id, muted, deafened, sharing, socket_id, since }>
+// `sharing` = has a screen-share track up (batch 5); the rail shows a 🖥️.
 const channels = new Map();
 // userId -> channelId
 const where = new Map();
@@ -43,10 +44,12 @@ const identity = (userId) => `u${userId}`;
 const userFromIdentity = (id) => { const m = /^u(\d+)$/.exec(id || ''); return m ? Number(m[1]) : null; };
 const channelFromRoom = (room) => { const m = /^channel-(\d+)$/.exec(room || ''); return m ? Number(m[1]) : null; };
 
+const publicMember = ({ user_id, muted, deafened, sharing }) => ({ user_id, muted, deafened, sharing });
+
 function snapshot() {
   const out = {};
   for (const [cid, members] of channels) {
-    if (members.size) out[cid] = [...members.values()].map(({ user_id, muted, deafened }) => ({ user_id, muted, deafened }));
+    if (members.size) out[cid] = [...members.values()].map(publicMember);
   }
   return out;
 }
@@ -56,7 +59,7 @@ function broadcastChannel(channelId) {
   const members = channels.get(channelId);
   io.emit('voice:state', {
     channel_id: channelId,
-    members: members ? [...members.values()].map(({ user_id, muted, deafened }) => ({ user_id, muted, deafened })) : [],
+    members: members ? [...members.values()].map(publicMember) : [],
   });
 }
 
@@ -65,13 +68,13 @@ function count(channelId) {
 }
 
 // Put a user in a channel (moving them out of any other one).
-function add(channelId, userId, { socket_id = null, muted = false, deafened = false } = {}) {
+function add(channelId, userId, { socket_id = null, muted = false, deafened = false, sharing = false } = {}) {
   const prev = where.get(userId);
   if (prev != null && prev !== channelId) remove(userId);
   if (!channels.has(channelId)) channels.set(channelId, new Map());
   const members = channels.get(channelId);
   const existing = members.get(userId);
-  members.set(userId, { user_id: userId, muted, deafened, socket_id: socket_id ?? existing?.socket_id ?? null, since: existing?.since || Date.now() });
+  members.set(userId, { user_id: userId, muted, deafened, sharing, socket_id: socket_id ?? existing?.socket_id ?? null, since: existing?.since || Date.now() });
   where.set(userId, channelId);
   broadcastChannel(channelId);
 }
@@ -86,13 +89,19 @@ function remove(userId) {
   return cid;
 }
 
-function setStatus(userId, { muted, deafened }) {
+function setStatus(userId, { muted, deafened, sharing }) {
   const cid = where.get(userId);
   if (cid == null) return;
   const m = channels.get(cid).get(userId);
   if (typeof muted === 'boolean') m.muted = muted;
   if (typeof deafened === 'boolean') m.deafened = deafened;
+  if (typeof sharing === 'boolean') m.sharing = sharing;
   broadcastChannel(cid);
+}
+
+// Who is sharing their screen in a channel (user ids).
+function sharers(channelId) {
+  return [...(channels.get(channelId)?.values() || [])].filter((m) => m.sharing).map((m) => m.user_id);
 }
 
 // A socket went away: if it was the socket that joined voice, drop the user.
@@ -137,7 +146,9 @@ async function mintToken(channelId, user) {
   at.addGrant({
     room: roomName(channelId),
     roomJoin: true,
-    canPublish: true,     // mic now, screen share in batch 5
+    canPublish: true,
+    // Mic + screen share (with its audio). No camera — Huddle has no video (plan §3).
+    canPublishSources: [TrackSource.MICROPHONE, TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO],
     canSubscribe: true,
     canPublishData: false,
   });
@@ -168,8 +179,19 @@ function applyWebhook(event) {
     for (const uid of [...(channels.get(cid)?.keys() || [])]) remove(uid);
     return true;
   }
+  // Screen share up / down. LiveKit sends the source as a string ('SCREEN_SHARE')
+  // or, with some SDK versions, the proto enum (3); accept both.
+  if (event.event === 'track_published' || event.event === 'track_unpublished') {
+    const uid = userFromIdentity(event.participant?.identity);
+    if (uid != null && where.get(uid) === cid && isScreenShare(event.track)) {
+      setStatus(uid, { sharing: event.event === 'track_published' });
+    }
+    return true;
+  }
   return false;
 }
+
+const isScreenShare = (track) => Boolean(track) && (track.source === 'SCREEN_SHARE' || track.source === TrackSource.SCREEN_SHARE) && (track.type === 'VIDEO' || track.type === 1 || track.type == null);
 
 // ── reconcile ──────────────────────────────────────────────────────────────
 
@@ -182,10 +204,16 @@ async function reconcile() {
       if (/not found|does not exist/i.test(err?.message || '')) parts = [];
       else continue; // LiveKit unreachable — leave things alone
     }
-    const present = new Set(parts.map((p) => userFromIdentity(p.identity)).filter((n) => n != null));
+    const present = new Map();
+    for (const p of parts) {
+      const uid = userFromIdentity(p.identity);
+      if (uid != null) present.set(uid, (p.tracks || []).some(isScreenShare));
+    }
     for (const [uid, m] of [...(channels.get(cid) || [])]) {
       // Give a fresh join 15 s to actually land in LiveKit before we doubt it.
-      if (!present.has(uid) && Date.now() - m.since > 15_000) remove(uid);
+      if (!present.has(uid)) { if (Date.now() - m.since > 15_000) remove(uid); continue; }
+      // A share that LiveKit no longer sees (sharer's tab crashed) is cleared here.
+      if (m.sharing && !present.get(uid)) setStatus(uid, { sharing: false });
     }
   }
 }
@@ -206,7 +234,7 @@ async function kick(userId) {
 
 module.exports = {
   CAP, config, roomName, identity, userFromIdentity, channelFromRoom,
-  snapshot, count, add, remove, setStatus, socketGone, mintToken, liveCount,
+  snapshot, count, add, remove, setStatus, sharers, socketGone, mintToken, liveCount,
   webhookReceiver, applyWebhook, reconcile, start, kick,
   _reset: () => { channels.clear(); where.clear(); },
 };

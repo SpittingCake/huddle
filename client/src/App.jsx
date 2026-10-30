@@ -4,6 +4,7 @@ import * as socket from './socket.js';
 import Login from './Login.jsx';
 import Rail from './Rail.jsx';
 import ChannelView from './ChannelView.jsx';
+import ShareView, { ShareBar } from './ShareView.jsx';
 import Avatar from './Avatar.jsx';
 import * as voice from './voiceStore.js';
 // Settings is owner-only and rarely open; keep it out of the main bundle too.
@@ -13,6 +14,8 @@ const Profile = lazy(() => import('./Profile.jsx'));
 // Batch 4 shell: text channels (batch 3) plus click-to-join voice channels —
 // who's in which channel arrives over the socket as voice:state; the audio
 // itself is voice.js (lazy-loaded with livekit-client on first join).
+// Batch 5: while you watch a screen share the middle pane splits — the
+// share on top (ShareView), the text channel underneath.
 
 function inviteFromUrl() {
   const m = window.location.pathname.match(/^\/invite\/([A-Za-z0-9_-]+)/);
@@ -33,6 +36,7 @@ export default function App() {
   const [channelId, setChannelId] = useState(channelFromUrl);
   const [settings, setSettings] = useState(null); // null | { tab, categoryId? }
   const [profile, setProfile] = useState(false);
+  const watching = voice.useVoice().watching;
   const currentChannel = useRef(channelId);
   currentChannel.current = channelId;
 
@@ -152,8 +156,11 @@ export default function App() {
         onOpenSettings={isOwner ? (tab, extra) => setSettings({ tab: tab || 'overview', ...extra }) : null}
       />
 
-      <main className="main">
-        <ChannelView channel={channel} user={user} members={members} onRead={onRead} voiceMembers={channel ? voiceState[channel.id] || [] : []} />
+      <main className={`main${watching != null ? ' split' : ''}`}>
+        {watching != null ? <ShareView members={members} user={user} /> : <ShareBar members={members} user={user} />}
+        <div className="main-text">
+          <ChannelView channel={channel} user={user} members={members} onRead={onRead} voiceMembers={channel ? voiceState[channel.id] || [] : []} />
+        </div>
       </main>
 
       <aside className="members">

@@ -3,7 +3,8 @@ import * as voice from './voiceStore.js';
 import { keyLabel } from './voiceStore.js';
 
 // Voice settings modal: devices, voice activity vs push-to-talk, sensitivity
-// (with a live meter), PTT key, noise suppression, sounds, diagnostics.
+// (with a live meter), PTT key, noise suppression, sounds, screen share
+// (frame rate + audio), diagnostics.
 // Everything is per-browser (localStorage) — it's about this machine's mic.
 
 export default function VoiceSettings({ onClose }) {
@@ -97,6 +98,18 @@ export default function VoiceSettings({ onClose }) {
 
           <label className="check"><input type="checkbox" checked={s.noise} onChange={(e) => voice.updateSettings({ noise: e.target.checked })} /> Noise suppression</label>
           <label className="check"><input type="checkbox" checked={s.sounds} onChange={(e) => voice.updateSettings({ sounds: e.target.checked })} /> Join / leave / mute sounds</label>
+
+          <h4 className="settings-sub">Screen share</h4>
+          <div className="row">
+            <span>Frame rate</span>
+            <div className="fps-toggle">
+              <button type="button" className={s.shareFps !== 60 ? 'active' : ''} onClick={() => voice.updateSettings({ shareFps: 30 })}>30 fps</button>
+              <button type="button" className={s.shareFps === 60 ? 'active' : ''} onClick={() => voice.updateSettings({ shareFps: 60 })}>60 fps</button>
+            </div>
+            <span className="muted small">Up to 1080p. 60 looks smoother for games but costs more CPU and upload.{v.sharing ? ' Changes apply to your current share.' : ''}</span>
+          </div>
+          <label className="check"><input type="checkbox" checked={s.shareAudio} onChange={(e) => voice.updateSettings({ shareAudio: e.target.checked })} /> Share audio with my screen</label>
+          <span className="muted small">Needs the browser's “Share audio” box ticked in the picker. Windows can share system audio; macOS browsers only share a tab's audio (the desktop app will fix that).</span>
 
           <div className="row voice-diag">
             <button type="button" className="ghost" onClick={copy} disabled={v.phase === 'idle'}>{copied ? 'Copied ✓' : 'Copy diagnostics'}</button>

@@ -1,6 +1,7 @@
 // Voice state for the UI, without pulling livekit-client (~400 kB) into the
 // main bundle. Components read it with useVoice(); actions lazy-load
-// ./voice.js the first time someone joins a channel.
+// ./voice.js the first time someone joins a channel. Batch 5 adds screen
+// share state (sharing / shares / watching) and the share actions.
 
 import { useSyncExternalStore } from 'react';
 import { api } from './api.js';
@@ -17,6 +18,8 @@ export const DEFAULT_SETTINGS = {
   sounds: true,
   inputId: '',
   outputId: '',
+  shareFps: 30,           // 30 | 60 — screen share frame rate (plan §3.5: 1080p30 default, 60 toggle)
+  shareAudio: true,       // include system/window audio with the share
 };
 
 function load(key, fallback) {
@@ -38,8 +41,14 @@ let state = {
   remoteMuted: [],        // user ids whose mic LiveKit reports muted
   level: -100,            // my mic level, dB (for the settings meter)
   gateOpen: false,        // is my mic currently passing audio
-  stats: {},              // { protocol, relay, server, rttMs, lossPct, jitterMs, reconnects }
+  stats: {},              // { protocol, relay, server, rttMs, lossPct, jitterMs, reconnects, share: { fps, kbps, width, height } }
   log: [],
+  // Screen share (batch 5)
+  sharing: false,         // am I sharing my screen
+  shareHasAudio: false,   // did my share come with audio
+  shares: [],             // user ids with a screen share up in my channel (me included)
+  watching: null,         // user id whose share is in the viewer pane (null = none)
+  shareError: null,
   settings: load(SETTINGS_KEY, DEFAULT_SETTINGS),
   people: load(PEOPLE_KEY, {}), // userId -> { volume: 0..2, muted: bool }
 };
@@ -90,6 +99,12 @@ export async function leave() { if (engine) await engine.leave(); }
 export async function toggleMute() { if (engine) await engine.toggleMute(); }
 export async function toggleDeafen() { if (engine) await engine.toggleDeafen(); }
 export async function startAudio() { if (engine) await engine.startAudio(); }
+export async function toggleShare() { if (engine) await engine.toggleShare(); }
+export async function stopShare() { if (engine) await engine.stopShare(); }
+export function watch(userId) { engine?.watch(userId); }
+export function stopWatching() { engine?.watch(null); }
+export function attachShare(el) { engine?.attachShare(el); }
+export function canShare() { return Boolean(navigator.mediaDevices?.getDisplayMedia || window.huddleDesktop?.getDisplayMedia); }
 export function diagnostics() { return engine ? engine.diagnostics() : ''; }
 export function reportJoined() { engine?.reportJoined(); }
 export async function listDevices() { const e = await load_(); return e.listDevices(); }
