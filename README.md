@@ -2,7 +2,7 @@
 
 Voice + text for gaming with friends. One server, text channels, voice channels you click to join, screen share with game audio, and presence that shows what you're playing. Built to stay out of the way of the game.
 
-Plan and build order: [`docs/Huddle-Plan.md`](docs/Huddle-Plan.md). Current state: **batch 3** (sign-in + invites, server/channel settings, LiveKit test room, and live text channels — messages, replies, edits, reactions, pins, uploads, unread/mention badges, typing).
+Plan and build order: [`docs/Huddle-Plan.md`](docs/Huddle-Plan.md). Current state: **batch 4** (sign-in + invites, server/channel settings, text channels with the works, and click-to-join voice channels — cap of 10, mute/deafen, voice activity or push-to-talk, per-person volume).
 
 ## Layout
 
@@ -48,7 +48,7 @@ One Railway project, three services:
 |---|---|---|
 | `huddle` | this repo, root directory `/` | Build: `npm run build`. Start: `npm start`. **Volume** mounted at `/data` + `UPLOAD_DIR=/data/uploads` for attachments. |
 | `huddle-postgres` | Railway Postgres | `DATABASE_URL` → `${{huddle-postgres.DATABASE_URL}}` |
-| `huddle-livekit` | `livekit/livekit-server` image | batch 1 |
+| `huddle-livekit` | `livekit/` (Dockerfile) | Media server. Optional `LIVEKIT_WEBHOOK_URL` → `https://<huddle domain>/api/voice/webhook`. See `livekit/README.md`. |
 
 Variables for `huddle`: everything in `server/.env.example` (`TRUST_PROXY=true`, `SERVER_URL` = the Railway domain). `PORT` is set by Railway.
 

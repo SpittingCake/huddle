@@ -63,9 +63,11 @@ Project `huddle` (the one with `huddle` + `huddle-postgres`).
 
 ## The test
 
-`https://huddle-production-f9a4.up.railway.app/voice-test` — everyone signs in,
-clicks **Join voice test**, talks for 10 minutes, then clicks **Copy
-diagnostics** and sends the text back.
+Everyone signs in to `https://huddle-production-f9a4.up.railway.app`, clicks
+**Lobby** in the left rail (allow the microphone), talks for 10 minutes, then
+opens the ⚙ in the bottom-left voice panel and clicks **Copy diagnostics**;
+paste the text to Claude. (The old `/voice-test` page was replaced by real
+voice channels in batch 4.)
 
 **Pass** if all of these hold for all 3 people:
 - everyone hears everyone, both directions, the whole time;
@@ -85,7 +87,11 @@ can't connect at all.
 - **Worked yesterday, fails today** → Railway may have moved the proxy to a
   new IP. Redeploy `huddle-livekit` (it looks the IP up at boot). If that keeps
   happening, that's another point for the VPS.
-- **"Voice isn't configured on the server yet"** → step 6 on the `huddle` service.
+- **"Voice isn't set up on the server yet"** → step 6 on the `huddle` service.
+- **Someone shows under a channel after they closed the app** → the server
+  reconciles with LiveKit every 30 s; for instant updates set
+  `LIVEKIT_WEBHOOK_URL` on `huddle-livekit` to
+  `https://<huddle domain>/api/voice/webhook` (batch 4).
 - **Logs say `could not find the container's IPv4 address`** → set
   `LIVEKIT_FORWARD_IP` to the address shown by Railway's private network, or
   go to the VPS.

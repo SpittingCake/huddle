@@ -1,9 +1,13 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Avatar from './Avatar.jsx';
+import VoicePanel from './VoicePanel.jsx';
+import * as voice from './voiceStore.js';
 
 // Left rail: server name, channels grouped under collapsible categories,
-// and the signed-in user at the bottom. Owner sees a gear and "+" buttons
-// that open Settings. Collapsed state is a per-browser convenience only.
+// the voice panel while you're in a call, and you at the bottom. Text
+// channels select; voice channels JOIN on click (the middle pane stays on
+// your text channel, like Discord). People in a voice channel stack under
+// it with a speaking ring; click one for volume / local mute.
 
 const COLLAPSE_KEY = 'huddle_collapsed_categories';
 function loadCollapsed() {
@@ -25,9 +29,13 @@ export function groupChannels(data) {
   return { loose, groups: categories.map((cat) => ({ category: cat, channels: byCat.get(cat.id) })) };
 }
 
-export default function Rail({ data, user, unread, channelId, onSelect, onSignOut, onOpenProfile, onOpenSettings }) {
+export default function Rail({ data, user, unread, voiceState, channelId, onSelect, onSignOut, onOpenProfile, onOpenSettings }) {
   const [collapsed, setCollapsed] = useState(loadCollapsed);
+  const [person, setPerson] = useState(null); // { userId, channelId } popover
+  const v = voice.useVoice();
   const { loose, groups } = groupChannels(data);
+  const members = data?.members || [];
+  const cap = 10;
 
   function toggle(catId) {
     setCollapsed((s) => {
@@ -38,19 +46,55 @@ export default function Rail({ data, user, unread, channelId, onSelect, onSignOu
     });
   }
 
+  function clickChannel(c) {
+    if (c.type === 'voice') {
+      if (v.channelId === c.id) return;
+      voice.join(c);
+    } else {
+      onSelect(c.id);
+    }
+  }
+
   const item = (c) => {
     const u = (unread && unread[c.id]) || null;
     const hasUnread = c.type === 'text' && c.id !== channelId && u?.unread > 0;
+    const inVoice = c.type === 'voice' ? (voiceState?.[c.id] || []) : [];
+    const mine = c.type === 'voice' && v.channelId === c.id;
     return (
-      <li
-        key={c.id}
-        className={`channel ${c.type}${c.id === channelId ? ' selected' : ''}${hasUnread ? ' unread' : ''}`}
-        onClick={() => onSelect(c.id)}
-        title={c.type === 'voice' ? 'Voice channel' : 'Text channel'}
-      >
-        <span className="glyph">{c.type === 'voice' ? '🔊' : '#'}</span>
-        <span className="channel-name">{c.name}</span>
-        {hasUnread && u.mentions > 0 && <span className="badge" title={`${u.mentions} mention${u.mentions > 1 ? 's' : ''}`}>{u.mentions > 99 ? '99+' : u.mentions}</span>}
+      <li key={c.id} className={`channel-wrap${mine ? ' in-voice' : ''}`}>
+        <div
+          className={`channel ${c.type}${c.id === channelId ? ' selected' : ''}${hasUnread ? ' unread' : ''}${mine ? ' mine' : ''}`}
+          onClick={() => clickChannel(c)}
+          title={c.type === 'voice' ? (mine ? 'You are in this channel' : 'Click to join') : 'Text channel'}
+        >
+          <span className="glyph">{c.type === 'voice' ? '🔊' : '#'}</span>
+          <span className="channel-name">{c.name}</span>
+          {hasUnread && u.mentions > 0 && <span className="badge" title={`${u.mentions} mention${u.mentions > 1 ? 's' : ''}`}>{u.mentions > 99 ? '99+' : u.mentions}</span>}
+          {c.type === 'voice' && inVoice.length > 0 && <span className={`voice-count${inVoice.length >= cap ? ' full' : ''}`}>{inVoice.length}/{cap}</span>}
+        </div>
+        {inVoice.length > 0 && (
+          <ul className="voice-people">
+            {inVoice.map((m) => {
+              const member = members.find((x) => x.id === m.user_id) || { id: m.user_id, display_name: '…' };
+              const isMe = m.user_id === user.id;
+              const speaking = mine && v.speaking.includes(m.user_id);
+              const localMuted = !isMe && voice.personFor(m.user_id).muted;
+              return (
+                <li
+                  key={m.user_id}
+                  className={`voice-person${speaking ? ' speaking' : ''}${isMe ? ' me' : ''}`}
+                  onClick={(e) => { e.stopPropagation(); if (!isMe) setPerson({ userId: m.user_id, anchor: e.currentTarget }); }}
+                  title={isMe ? 'You' : 'Volume / mute for me'}
+                >
+                  <span className="voice-ring"><Avatar user={member} size={20} /></span>
+                  <span className="voice-person-name">{member.display_name}</span>
+                  {localMuted && <span className="voice-icon" title="Muted for you">🔇</span>}
+                  {m.deafened ? <span className="voice-icon" title="Deafened">🎧</span> : m.muted ? <span className="voice-icon" title="Muted">🎤</span> : null}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </li>
     );
   };
@@ -84,8 +128,8 @@ export default function Rail({ data, user, unread, channelId, onSelect, onSignOu
                   <button className="icon" title={`Add channel to ${category.name}`} onClick={() => onOpenSettings('channels', { categoryId: category.id })}>+</button>
                 )}
               </div>
-              {/* When collapsed, still show the channel you're in so you don't lose your place. */}
-              {!isCollapsed ? <ul>{channels.map(item)}</ul> : <ul>{channels.filter((c) => c.id === channelId).map(item)}</ul>}
+              {/* When collapsed, still show the channel you're in (text or voice) so you don't lose your place. */}
+              {!isCollapsed ? <ul>{channels.map(item)}</ul> : <ul>{channels.filter((c) => c.id === channelId || c.id === v.channelId).map(item)}</ul>}
             </div>
           );
         })}
@@ -93,7 +137,14 @@ export default function Rail({ data, user, unread, channelId, onSelect, onSignOu
         {onOpenSettings && (
           <button className="ghost rail-add" onClick={() => onOpenSettings('channels')}>+ Add channel</button>
         )}
+        {v.error && v.phase === 'idle' && (
+          <div className="error rail-voice-error">
+            {v.error} <button type="button" className="link" onClick={() => voice.set({ error: null })}>✕</button>
+          </div>
+        )}
       </div>
+
+      <VoicePanel channel={data?.channels.find((c) => c.id === v.channelId)} />
 
       <div className="me">
         <button type="button" className="me-button" onClick={onOpenProfile} title="Edit your profile">
@@ -105,6 +156,40 @@ export default function Rail({ data, user, unread, channelId, onSelect, onSignOu
         </button>
         <button className="ghost" onClick={onSignOut} title="Sign out of this device">Sign out</button>
       </div>
+
+      {person && <PersonPopover userId={person.userId} anchor={person.anchor} members={members} onClose={() => setPerson(null)} />}
     </aside>
+  );
+}
+
+// Volume + "mute for me" for one person in voice. Per-browser setting.
+function PersonPopover({ userId, anchor, members, onClose }) {
+  const v = voice.useVoice();
+  const p = voice.personFor(userId);
+  const ref = useRef(null);
+  const member = members.find((m) => m.id === userId);
+  const rect = anchor.getBoundingClientRect();
+
+  useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+
+  return (
+    <div className="person-popover" ref={ref} style={{ top: Math.min(rect.bottom + 4, window.innerHeight - 140), left: rect.left + 8 }}>
+      <div className="row person-head">
+        <Avatar user={member} size={24} />
+        <strong>{member?.display_name || '…'}</strong>
+      </div>
+      <label>
+        Volume — {Math.round(p.volume * 100)}%
+        <input type="range" min={0} max={200} value={Math.round(p.volume * 100)} onChange={(e) => voice.updatePerson(userId, { volume: Number(e.target.value) / 100 })} disabled={p.muted} />
+      </label>
+      <label className="check"><input type="checkbox" checked={p.muted} onChange={(e) => voice.updatePerson(userId, { muted: e.target.checked })} /> Mute for me</label>
+      {v.channelId == null && <div className="muted small">Applies when you're in a voice channel with them.</div>}
+    </div>
   );
 }

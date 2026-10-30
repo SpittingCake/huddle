@@ -62,6 +62,18 @@ else
   MODE="direct (ICE/TCP :$ICE_PORT, UDP :7882)"
 fi
 
+# Optional: tell the Huddle server who joins/leaves (batch 4). Set
+# LIVEKIT_WEBHOOK_URL to https://<huddle domain>/api/voice/webhook.
+WEBHOOK_CONFIG=""
+if [ -n "${LIVEKIT_WEBHOOK_URL:-}" ]; then
+  WEBHOOK_CONFIG="webhook:
+  api_key: $LIVEKIT_API_KEY
+  urls:
+    - $LIVEKIT_WEBHOOK_URL
+"
+  log "webhooks → $LIVEKIT_WEBHOOK_URL"
+fi
+
 CONFIG="port: $SIGNAL_PORT
 log_level: $LOG_LEVEL
 rtc:
@@ -76,7 +88,7 @@ room:
   departure_timeout: 20
 keys:
   $LIVEKIT_API_KEY: $LIVEKIT_API_SECRET
-"
+$WEBHOOK_CONFIG"
 
 log "mode: $MODE"
 log "signalling on :$SIGNAL_PORT"

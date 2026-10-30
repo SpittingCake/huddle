@@ -3,10 +3,12 @@
 // /api/server after the owner edits channels, categories, or the server
 // name. Batch 3: message / reaction / pin events are broadcast from the
 // routes; typing goes client → server → everyone else; read markers go to
-// the one user's own devices only. Voice membership comes in batch 4.
+// the one user's own devices only. Batch 4: voice membership (helpers/voice.js)
+// is reported by clients here and pushed to everyone as `voice:state`.
 
 const { Server } = require('socket.io');
 const { resolveToken } = require('./helpers/sessions');
+const voice = require('./helpers/voice');
 
 // userId -> Set<socketId>. A user is "online" while they have ≥1 socket.
 const online = new Map();
@@ -51,7 +53,19 @@ function attach(httpServer, { corsOrigins }) {
       socket.broadcast.emit('typing', { channel_id: channelId, user_id: uid });
     });
 
+    // Voice membership (batch 4). The client reports after it has actually
+    // connected to LiveKit; the REST join route already enforced the cap.
+    socket.emit('voice:snapshot', { channels: voice.snapshot() });
+    socket.on('voice:joined', (payload) => {
+      const channelId = Number(payload?.channel_id);
+      if (!Number.isInteger(channelId)) return;
+      voice.add(channelId, uid, { socket_id: socket.id, muted: Boolean(payload?.muted), deafened: Boolean(payload?.deafened) });
+    });
+    socket.on('voice:left', () => voice.remove(uid));
+    socket.on('voice:status', (payload) => voice.setStatus(uid, { muted: payload?.muted, deafened: payload?.deafened }));
+
     socket.on('disconnect', () => {
+      voice.socketGone(uid, socket.id);
       const set = online.get(uid);
       if (!set) return;
       set.delete(socket.id);
@@ -76,4 +90,4 @@ function emitToUser(userId, event, payload) {
   if (io) io.to(userRoom(userId)).emit(event, payload || {});
 }
 
-module.exports = { attach, broadcast, emitToUser, online };
+module.exports = { attach, broadcast, emitToUser, online, io: () => io };

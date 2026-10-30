@@ -5,15 +5,14 @@ import Login from './Login.jsx';
 import Rail from './Rail.jsx';
 import ChannelView from './ChannelView.jsx';
 import Avatar from './Avatar.jsx';
-// Voice pulls in livekit-client (~400 kB); only load it on the page that needs it.
-const VoiceTest = lazy(() => import('./VoiceTest.jsx'));
+import * as voice from './voiceStore.js';
 // Settings is owner-only and rarely open; keep it out of the main bundle too.
 const Settings = lazy(() => import('./Settings.jsx'));
 const Profile = lazy(() => import('./Profile.jsx'));
 
-// Batch 3 shell: text channels are live (messages, unread + mention badges
-// in the rail, typing), profile (avatar + display name), server icon.
-// Real voice channels are batch 4.
+// Batch 4 shell: text channels (batch 3) plus click-to-join voice channels —
+// who's in which channel arrives over the socket as voice:state; the audio
+// itself is voice.js (lazy-loaded with livekit-client on first join).
 
 function inviteFromUrl() {
   const m = window.location.pathname.match(/^\/invite\/([A-Za-z0-9_-]+)/);
@@ -29,6 +28,7 @@ export default function App() {
   const [data, setData] = useState(null);
   const [online, setOnline] = useState(new Set());
   const [unread, setUnread] = useState({}); // channelId -> { unread, mentions }
+  const [voiceState, setVoiceState] = useState({}); // channelId -> [{ user_id, muted, deafened }]
   const [invite] = useState(inviteFromUrl);
   const [channelId, setChannelId] = useState(channelFromUrl);
   const [settings, setSettings] = useState(null); // null | { tab, categoryId? }
@@ -69,8 +69,18 @@ export default function App() {
       });
     });
     s.on('read:updated', ({ channel_id }) => setUnread((u) => ({ ...u, [channel_id]: { unread: 0, mentions: 0 } })));
+    s.on('voice:snapshot', ({ channels }) => setVoiceState(channels || {}));
+    s.on('voice:state', ({ channel_id, members }) => setVoiceState((vs) => {
+      const next = { ...vs };
+      if (members.length) next[channel_id] = members; else delete next[channel_id];
+      return next;
+    }));
     let firstConnect = true;
-    s.on('connect', () => { if (firstConnect) firstConnect = false; else loadUnread(); }); // after a reconnect, counts may have drifted
+    s.on('connect', () => {
+      if (firstConnect) { firstConnect = false; return; }
+      loadUnread(); // after a reconnect, counts may have drifted
+      voice.reportJoined(); // and the server may have dropped our voice membership
+    });
     s.on('connect_error', (err) => {
       if (err.message === 'unauthorized') { setToken(null); setUser(null); }
     });
@@ -125,12 +135,6 @@ export default function App() {
 
   if (user === undefined) return <div className="center muted">Loading…</div>;
   if (!user) return <Login invite={invite} onLogin={onLogin} />;
-  if (window.location.pathname === '/voice-test') return (
-      <Suspense fallback={<div className="center muted">Loading…</div>}>
-        <VoiceTest user={user} />
-      </Suspense>
-    );
-
   const isOwner = user.role === 'owner';
   const members = data?.members || [];
 
@@ -140,6 +144,7 @@ export default function App() {
         data={data}
         user={user}
         unread={unread}
+        voiceState={voiceState}
         channelId={channel?.id ?? null}
         onSelect={selectChannel}
         onSignOut={signOut}
@@ -148,7 +153,7 @@ export default function App() {
       />
 
       <main className="main">
-        <ChannelView channel={channel} user={user} members={members} onRead={onRead} />
+        <ChannelView channel={channel} user={user} members={members} onRead={onRead} voiceMembers={channel ? voiceState[channel.id] || [] : []} />
       </main>
 
       <aside className="members">

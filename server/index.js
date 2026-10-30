@@ -47,6 +47,8 @@ app.use(
   })
 );
 app.use(cors({ origin: corsOrigins, credentials: true }));
+// LiveKit webhooks need the raw body for signature checks — before express.json.
+app.post('/api/voice/webhook', ...require('./routes/voice').webhook);
 app.use(express.json({ limit: '256kb' }));
 
 app.get('/api/health', (req, res) => res.json({ ok: true, version: require('./package.json').version }));
@@ -77,6 +79,7 @@ app.use((err, req, res, next) => {
 
 const server = http.createServer(app);
 socket.attach(server, { corsOrigins });
+require('./helpers/voice').start(socket.io());
 
 (async () => {
   await db.migrate();
